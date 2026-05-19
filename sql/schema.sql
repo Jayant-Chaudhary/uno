@@ -71,3 +71,8 @@ CREATE TABLE room_players (
         (user_id IS NULL AND guest_name IS NOT NULL)
     )
 );
+
+-- updating the user table for some of the new features
+ALTER TABLE room_players ADD COLUMN reconnect_token TEXT;
+ALTER TABLE room_players ADD COLUMN disconnect_count INT DEFAULT 0;
+ALTER TABLE rooms ADD COLUMN rounds_played INT DEFAULT 0;
