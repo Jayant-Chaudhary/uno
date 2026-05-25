@@ -3,7 +3,8 @@ const bcrypt = require("bcrypt");
 const crypto = require("crypto");
 const jwt = require("jsonwebtoken");
 const db = require("../db");
-const generateJwt = require("../utils/generateToken");
+const generateAccessToken = require("../utils/generateAcessToken");
+const generateRefreshToken = require("../utils/generateRefreshToken");
 const createSession = require("../utils/createSession");
 
 exports.signup = async (req, res) => {
@@ -54,11 +55,20 @@ exports.signup = async (req, res) => {
 
     const user = result.rows[0];
 
-    const token = generateJwt(user);
+    const accessToken = generateAccessToken(user);
 
-    await createSession(user.user_id, token, req);
+    const refreshToken = generateRefreshToken(user);
 
-    res.cookie("token", token, {
+    await createSession(user.user_id, refreshToken, req);
+
+    res.cookie("access_token", accessToken, {
+      httpOnly: true,
+      secure: false,
+      sameSite: "lax",
+      maxAge: 15 * 60 * 1000,
+    });
+
+    res.cookie("refresh_token", refreshToken, {
       httpOnly: true,
       secure: false,
       sameSite: "lax",
@@ -128,11 +138,20 @@ exports.login = async (req, res) => {
       [user.user_id],
     );
 
-    const token = generateJwt(user);
+    const accessToken = generateAccessToken(user);
 
-    await createSession(user.user_id, token, req);
+    const refreshToken = generateRefreshToken(user);
 
-    res.cookie("token", token, {
+    await createSession(user.user_id, refreshToken, req);
+
+    res.cookie("access_token", accessToken, {
+      httpOnly: true,
+      secure: false,
+      sameSite: "lax",
+      maxAge: 15 * 60 * 1000,
+    });
+
+    res.cookie("refresh_token", refreshToken, {
       httpOnly: true,
       secure: false,
       sameSite: "lax",
@@ -217,36 +236,19 @@ exports.logout = async (req, res) => {
 //current veiwer
 exports.me = async (req, res) => {
   try {
-    const token = req.cookies.token;
-
-    if (!token) {
-      return res.status(401).json({
-        error: "Unauthorized",
-      });
-    }
-    const sessionResult = await db.query(
-      "SELECT * FROM sessions WHERE token = $1 AND expires_at > now()",
-      [token],
-    );
-    if (sessionResult.rows.length === 0) {
-      return res.status(401).json({ error: "Session expired" });
-    }
-
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-
     const result = await db.query(
       `
-        SELECT
-          user_id,
-          username,
-          email,
-          avatar_index,
-          created_at,
-          last_login
-        FROM users
-        WHERE user_id = $1
+      SELECT
+        user_id,
+        username,
+        email,
+        avatar_index,
+        created_at,
+        last_login
+      FROM users
+      WHERE user_id = $1
       `,
-      [decoded.user_id],
+      [req.user.user_id],
     );
 
     if (result.rows.length === 0) {
@@ -259,8 +261,8 @@ exports.me = async (req, res) => {
   } catch (err) {
     console.error(err);
 
-    res.status(401).json({
-      error: "Invalid token",
+    res.status(500).json({
+      error: "Internal server error",
     });
   }
 };
@@ -374,6 +376,70 @@ exports.resetPassword = async (req, res) => {
 
     res.status(500).json({
       error: "Internal server error",
+    });
+  }
+};
+
+exports.refresh = async (req, res) => {
+  try {
+    const refreshToken = req.cookies.refresh_token;
+
+    if (!refreshToken) {
+      return res.status(401).json({
+        error: "No refresh token",
+      });
+    }
+
+    // verify token
+    const decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET);
+
+    // check DB session
+    const session = await db.query(
+      `
+      SELECT *
+      FROM sessions
+      WHERE refresh_token = $1
+      AND expires_at > now()
+      `,
+      [refreshToken],
+    );
+
+    if (session.rows.length === 0) {
+      return res.status(401).json({
+        error: "Invalid session",
+      });
+    }
+
+    // get user
+    const userResult = await db.query(
+      `
+      SELECT *
+      FROM users
+      WHERE user_id = $1
+      `,
+      [decoded.user_id],
+    );
+
+    const user = userResult.rows[0];
+
+    // new access token
+    const newAccessToken = generateAccessToken(user);
+
+    res.cookie("access_token", newAccessToken, {
+      httpOnly: true,
+      secure: false,
+      sameSite: "lax",
+      maxAge: 15 * 60 * 1000,
+    });
+
+    res.json({
+      message: "Token refreshed",
+    });
+  } catch (err) {
+    console.error(err);
+
+    res.status(401).json({
+      error: "Invalid refresh token",
     });
   }
 };

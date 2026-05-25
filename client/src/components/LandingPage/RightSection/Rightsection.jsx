@@ -8,7 +8,7 @@ const Rightsection = () => {
   async function handleClick(mode) {
     await setClicked(mode);
     if (clicked == "offline") {
-      await navigate("/offline-setup");
+      await navigate("/auth");
     }
 
     setTimeout(() => {

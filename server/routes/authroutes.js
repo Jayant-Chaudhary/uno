@@ -8,9 +8,12 @@ const authController = require("../controllers/authcontroller");
 
 const authMiddleware = require("../middleware/authmiddleware");
 
+const refreshTokenController = require("../middleware/authmiddleware");
+
 router.post("/signup", authController.signup);
 
 router.post("/login", authController.login);
+router.post("/refresh", refreshTokenController);
 
 router.post("/forgot-password", authController.forgotPassword);
 
