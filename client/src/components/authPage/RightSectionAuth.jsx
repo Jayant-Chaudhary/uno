@@ -1,31 +1,53 @@
 import React, { useRef, useState } from "react";
+import API from "../../api/AuthApi";
+import toast from "react-hot-toast";
 
 const RightSectionAuth = () => {
   const [tab, setTab] = useState("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [Username, setUsername] = useState("");
+  const [username, setusername] = useState("");
   const [loading, setLoading] = useState(false);
-  
 
-  // api caller
+  //helper function
+  const resetForm = () => {
+    setEmail("");
+    setPassword("");
+    setUsername("");
+  };
+
+ // api caller
   const onSubmitHandler = async (e) => {
     e.preventDefault();
     setLoading(true);
     try {
-      // 🔌 Wire your Postgres/API call here
-      // e.g. await loginUser({ email, password })
-      // or   await signupUser({ Username, email, password })
-      console.log(tab, { email, password, Username });
+      let response;
+
+      if (tab === "login") {
+        response = await API.post("/login", { email, password });
+        toast.success(response.data.message || "Welcome back!");
+        console.log("Logged in user:");
+      } else {
+        response = await API.post("/signup", { email, password, username });
+        toast.success(
+          response.data.message || "Account created! Please sign in.",
+        );
+        resetForm();
+        setTab("login");
+      }
     } catch (err) {
+      const msg =
+        err?.response?.data?.error ||
+        err?.response?.data?.message ||
+        "Something went wrong. Please try again.";
+      toast.error(msg);
       console.error(err);
     } finally {
       setLoading(false);
     }
   };
-
   const onGoogleHandler = () => {
-    // 🔌 Wire your Google OAuth here
+    window.location.href = `${import.meta.env.VITE_API}/auth/google`;
     console.log("Google auth");
   };
 
@@ -108,15 +130,15 @@ const RightSectionAuth = () => {
 
           {/* Form */}
           <form onSubmit={onSubmitHandler} className="flex flex-col gap-5">
-            {/* Username — signup only */}
+            {/* username — signup only */}
             {tab === "signup" && (
               <div className="relative">
                 <UserIcon />
                 <input
                   type="text"
-                  placeholder="Username"
-                  value={Username}
-                  onChange={(e) => setUsername(e.target.value)}
+                  placeholder="username"
+                  value={username}
+                  onChange={(e) => setusername(e.target.value)}
                   required
                   className="auth-field pl-10 text-white"
                 />
@@ -283,7 +305,6 @@ const UserIcon = () => (
     />
   </svg>
 );
-
 
 const GoogleIcon = () => (
   <svg width="16" height="16" viewBox="0 0 18 18">

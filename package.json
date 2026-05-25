@@ -12,8 +12,10 @@
     "dev": "nodemon server.js"
   },
   "dependencies": {
+    "axios": "^1.16.1",
     "bcrypt": "^6.0.0",
     "cookie-parser": "^1.4.7",
+    "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "express-session": "^1.19.0",
@@ -21,6 +23,7 @@
     "nodemon": "^3.1.14",
     "passport": "^0.7.0",
     "passport-google-oauth20": "^2.0.0",
-    "pg": "^8.21.0"
+    "pg": "^8.21.0",
+    "react-hot-toast": "^2.6.0"
   }
 }
