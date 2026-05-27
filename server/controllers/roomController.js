@@ -2,11 +2,15 @@ const roomManager = require("../roomManger");
 
 exports.createRoom = async (req, res) => {
   try {
-    const { maxPlayers } = req.body;
-    const room = await roomManager.createRoom(req.user.userId, { maxPlayers });
+    const { maxPlayers, displayName, avatarEmoji } = req.body;
+    const room = await roomManager.createRoom(req.user.user_id, {
+      maxPlayers,
+      displayName,
+      avatarEmoji,
+    });
     res.json({ room });
   } catch (err) {
-    res.statuts(400).json({ error: err.message });
+    res.status(400).json({ error: err.message });
   }
 };
 

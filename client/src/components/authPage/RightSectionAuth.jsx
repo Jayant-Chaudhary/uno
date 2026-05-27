@@ -1,6 +1,7 @@
 import React, { useRef, useState } from "react";
 import API from "../../api/AuthApi";
 import toast from "react-hot-toast";
+import { useNavigate } from "react-router-dom";
 
 const RightSectionAuth = () => {
   const [tab, setTab] = useState("login");
@@ -16,7 +17,8 @@ const RightSectionAuth = () => {
     setUsername("");
   };
 
- // api caller
+  // api caller
+  const navigate = useNavigate();
   const onSubmitHandler = async (e) => {
     e.preventDefault();
     setLoading(true);
@@ -24,11 +26,16 @@ const RightSectionAuth = () => {
       let response;
 
       if (tab === "login") {
-        response = await API.post("/login", { email, password });
+        response = await API.post("/auth/login", { email, password });
         toast.success(response.data.message || "Welcome back!");
+        await navigate("/roomCreator");
         console.log("Logged in user:");
       } else {
-        response = await API.post("/signup", { email, password, username });
+        response = await API.post("/auth/signup", {
+          email,
+          password,
+          username,
+        });
         toast.success(
           response.data.message || "Account created! Please sign in.",
         );

@@ -47,7 +47,7 @@ exports.signup = async (req, res) => {
           user_id,
           username,
           email,
-          avatar_index,
+          avatar_emoji
           created_at
       `,
       [username, email, hashedPassword],
@@ -168,7 +168,7 @@ exports.login = async (req, res) => {
 
         email: user.email,
 
-        avatar_index: user.avatar_index,
+        avatar_emoji: user.avatar_emoji,
       },
     });
   } catch (err) {
@@ -242,9 +242,9 @@ exports.me = async (req, res) => {
         user_id,
         username,
         email,
-        avatar_index,
         created_at,
-        last_login
+        last_login,
+        avatar_emoji
       FROM users
       WHERE user_id = $1
       `,
@@ -442,4 +442,20 @@ exports.refresh = async (req, res) => {
       error: "Invalid refresh token",
     });
   }
+};
+
+exports.updateAvatar = async (req, res) => {
+  const { avatarEmoji } = req.body;
+
+  if (!avatarEmoji || typeof avatarEmoji !== "string") {
+    return res.status(400).json({ error: "Invalid emoji" });
+  }
+  // strip anything longer than 10 chars (malicious input)
+  const clean = avatarEmoji.trim().slice(0, 10);
+
+  await db.query(`UPDATE users SET avatar_emoji = $1 WHERE user_id = $2`, [
+    clean,
+    req.user.user_id,
+  ]);
+  res.json({ success: true, avatarEmoji: clean });
 };

@@ -267,6 +267,7 @@ function registerGameEvent(io) {
       socket.emit("error", { message: err.message });
     }
   });
+
   socket.on("play_again", async ({ roomCode, hostId }) => {
     try {
       const state = await roomManager.playAgain(roomCode, hostId);
@@ -276,6 +277,34 @@ function registerGameEvent(io) {
       socket.emit("error", { message: err.message });
     }
   });
+
+  socket.on(
+    "reconnect_player",
+    async ({ roomCode, userId, reconnectToken }) => {
+      try {
+        const result = await roomManager.reconnectPlayer(
+          roomCode,
+          userId || null,
+          reconnectToken || null,
+          socket.id,
+        );
+
+        socket.join(roomCode);
+
+        const gameState = result.gameState;
+        const playerId = userId || `guest_${result.player.id}`;
+
+        socket.emit("reconnected", {
+          gameState: gameState ? buildPublicState(gameState, playerId) : null,
+          room: result.room,
+        }); 
+
+        io.to(roomCode).emit("player_reconnected", { playerId });
+      } catch (err) {
+        socket.emit("error", { message: err.message });
+      }
+    },
+  );
 
   socket.on("disconnecting", async () => {
     const rooms = [...socket.rooms].filter((r) => r !== socket.id);
@@ -287,7 +316,7 @@ function registerGameEvent(io) {
           io.to(roomCode).emit("player_disconnected", { socketId: socket.id });
         }
       } catch (_) {
-        // room may already be deleted — ignore
+
       }
     }
   });

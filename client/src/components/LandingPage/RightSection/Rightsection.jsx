@@ -9,6 +9,8 @@ const Rightsection = () => {
     await setClicked(mode);
     if (clicked == "offline") {
       await navigate("/auth");
+    }else{
+      await navigate("/joinRoom")
     }
 
     setTimeout(() => {
@@ -201,7 +203,7 @@ const Rightsection = () => {
               text-white
             "
           >
-            Play Online
+            Join ROOM
           </h2>
 
           <p

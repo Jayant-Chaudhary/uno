@@ -17,7 +17,7 @@ const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
     origin: process.env.CLIENT_API,
-    methods: ["GET", ["POST"]],
+    methods: ["GET", "POST"],
     credentials: true,
   },
 });
@@ -33,13 +33,13 @@ app.use(cookieParser());
 app.use(passport.initialize());
 
 app.use("/api/auth", authRoutes);
-app.use("/api/game", gameRoutes);
+app.use("/api/rooms", gameRoutes);
 app.get("/", (req, res) => {
   res.json({
     status: "Server running",
   });
 });
 
-app.listen(5000, () => {
+server.listen(5000, () => {
   console.log("Server running on port 5000");
 });

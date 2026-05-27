@@ -1,9 +1,12 @@
 import { useEffect, useState } from "react";
 import Landing from "./pages/Landing";
-import OfflineSetup from "./pages/OfflineSetup";
+
 import { Route, Routes } from "react-router-dom";
 import Auth from "./pages/Auth";
+import Lobby from "./pages/Lobby";
 import { Toaster } from "react-hot-toast";
+import RoomCreator from "./pages/RoomCreator";
+import JoinRoom from "./pages/JoinRoom";
 const App = () => {
   const [darkMode, setDarkMode] = useState(true);
 
@@ -13,7 +16,10 @@ const App = () => {
       {/* routers */}
       <Routes>
         <Route path="/" element={<Landing />} />
-        <Route path="/offline-setup" element={<OfflineSetup />} />
+        <Route path="/lobby/:roomCode" element={<Lobby />} />
+        <Route path="/joinRoom" element={<JoinRoom />} />
+        <Route path="/roomCreator" element={<RoomCreator />} />
+
         <Route path="/auth" element={<Auth />}></Route>
       </Routes>
     </div>

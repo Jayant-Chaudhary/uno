@@ -40,6 +40,7 @@ router.get(
   authController.googleSuccess,
 );
 router.get("/me", authMiddleware, authController.me);
+router.patch("/avatar", authMiddleware, authController.updateAvatar);
 
 router.post("/logout", authMiddleware, authController.logout);
 

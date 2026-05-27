@@ -13,11 +13,13 @@
     "@fontsource/fredoka": "^5.2.10",
     "@tailwindcss/vite": "^4.3.0",
     "axios": "^1.16.1",
+    "emoji-picker-react": "^4.19.1",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
     "react-hot-toast": "^2.6.0",
     "react-icons": "^5.6.0",
     "react-router-dom": "^7.15.1",
+    "socket.io-client": "^4.8.3",
     "tailwindcss": "^4.3.0"
   },
   "devDependencies": {

@@ -56,6 +56,8 @@ async function findroom(roomcode) {
 //--creating room
 async function createRoom(hostId, options = {}) {
   const maxPlayers = options.maxPlayers || 10;
+  const displayName = options.displayName;
+  const avatarEmoji = options.avatarEmoji;
   const roomCode = await generateRoomCode();
   const roomResult = await db.query(
     `
@@ -99,6 +101,13 @@ async function createRoom(hostId, options = {}) {
     `,
     [room.room_id, hostId],
   );
+  await db.query(
+    `UPDATE room_players 
+   SET game_name = $1, avatar_emoji = $2
+   WHERE room_id = $3 AND user_id = $4`,
+    [displayName, avatarEmoji, room.room_id, hostId],
+  );
+  
   console.log(room); //debugs
   return room;
 }
@@ -205,7 +214,7 @@ async function joinRoom(roomCode, userId = null, guestName = null) {
           rp.guest_name,
 
           u.username,
-          u.avatar_index
+          u.avatar_emoji
 
         FROM room_players rp
 
@@ -355,7 +364,7 @@ async function getRoomState(roomCode) {
           rp.guest_name,
 
           u.username,
-          u.avatar_index
+          u.avatar_emoji
 
         FROM room_players rp
 

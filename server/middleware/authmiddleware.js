@@ -3,10 +3,11 @@ require("dotenv").config();
 const jwt = require("jsonwebtoken");
 
 const db = require("../db");
-
 module.exports = async function (req, res, next) {
   try {
-    const token = req.cookies.token;
+    console.log(req.cookies);
+    console.log(req.cookies.token);
+    const token = req.cookies.access_token;
 
     if (!token) {
       return res.status(401).json({
@@ -20,7 +21,7 @@ module.exports = async function (req, res, next) {
             user_id,
             username,
             email,
-            avatar_index,
+            avatar_emoji,
             created_at
           FROM users
           WHERE user_id = $1
