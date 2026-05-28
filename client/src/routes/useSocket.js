@@ -3,7 +3,7 @@ import { io } from "socket.io-client";
 
 const SOCKET_URL = import.meta.env.VITE_API || "http://localhost:5000";
 
-let socketInstance = null; // singleton across re-renders
+let socketInstance = null;
 
 export function useSocket({
   onRoomUpdate,
@@ -16,10 +16,11 @@ export function useSocket({
   onBackToLobby,
   onError,
   onReconnected,
+  onRoomDeleted,
 } = {}) {
   const handlersRef = useRef({});
 
-  // keep handlers ref fresh without re-subscribing
+  // for refreshing the handlers
   useEffect(() => {
     handlersRef.current = {
       onRoomUpdate,
@@ -32,16 +33,31 @@ export function useSocket({
       onBackToLobby,
       onError,
       onReconnected,
+      onRoomDeleted,
     };
   });
 
   useEffect(() => {
+    // create socket once
     if (!socketInstance) {
       socketInstance = io(SOCKET_URL, {
         withCredentials: true,
         autoConnect: true,
       });
+
+      //debugs
+      socketInstance.on("connect", () => {
+        console.log("socket connected:", socketInstance.id);
+      });
+      socketInstance.on("connect_error", (err) => {
+        console.log("connect error:", err.message);
+      });
+      socketInstance.on("disconnect", (reason) => {
+        console.log("disconnected:", reason);
+      });
     }
+
+    window._debugSocket = socketInstance;
 
     const s = socketInstance;
 
@@ -49,34 +65,35 @@ export function useSocket({
       if (handlersRef.current[key]) handlersRef.current[key](data);
     };
 
-    s.on("room_update", (d) => dispatch("onRoomUpdate", d));
-    s.on("joined", (d) => dispatch("onRoomUpdate", d));
-    s.on("game_started", (d) => dispatch("onGameStarted", d));
-    s.on("game_update", (d) => dispatch("onGameUpdate", d));
-    s.on("game_over", (d) => dispatch("onGameOver", d));
-    s.on("uno_called", (d) => dispatch("onUnoCalled", d));
-    s.on("player_disconnected", (d) => dispatch("onPlayerDisconnected", d));
-    s.on("player_reconnected", (d) => dispatch("onPlayerReconnected", d));
-    s.on("back_to_lobby", (d) => dispatch("onBackToLobby", d));
-    s.on("error", (d) => dispatch("onError", d));
-    s.on("reconnected", (d) => dispatch("onReconnected", d));
+    const handlers = {
+      room_update: (d) => dispatch("onRoomUpdate", d),
+      joined: (d) => dispatch("onRoomUpdate", d),
+      game_started: (d) => dispatch("onGameStarted", d),
+      game_update: (d) => dispatch("onGameUpdate", d),
+      game_over: (d) => dispatch("onGameOver", d),
+      uno_called: (d) => dispatch("onUnoCalled", d),
+      player_disconnected: (d) => dispatch("onPlayerDisconnected", d),
+      player_reconnected: (d) => dispatch("onPlayerReconnected", d),
+      back_to_lobby: (d) => dispatch("onBackToLobby", d),
+      error: (d) => dispatch("onError", d),
+      reconnected: (d) => dispatch("onReconnected", d),
+      room_deleted: (d) => dispatch("onRoomDeleted", d),
+    };
+
+    // remove any existing listeners first to prevent stacking
+    Object.entries(handlers).forEach(([event, handler]) => {
+      s.off(event);
+      s.on(event, handler);
+    });
 
     return () => {
-      s.off("room_update");
-      s.off("joined");
-      s.off("game_started");
-      s.off("game_update");
-      s.off("game_over");
-      s.off("uno_called");
-      s.off("player_disconnected");
-      s.off("player_reconnected");
-      s.off("back_to_lobby");
-      s.off("error");
-      s.off("reconnected");
+      Object.entries(handlers).forEach(([event, handler]) => {
+        s.off(event, handler);
+      });
     };
-  }, []); // mount only
+  }, []);
 
-  // ── Emit helpers
+  // emitters
   const joinRoom = useCallback((roomCode, userId, reconnectToken) => {
     socketInstance?.emit("joinRoom", { roomCode, userId, reconnectToken });
   }, []);
@@ -98,6 +115,10 @@ export function useSocket({
     socketInstance?.emit("draw_card", { roomCode, playerId });
   }, []);
 
+  const passTurn = useCallback((roomCode, playerId) => {
+    socketInstance?.emit("pass_turn", { roomCode, playerId });
+  }, []);
+
   const sayUno = useCallback((roomCode, playerId) => {
     socketInstance?.emit("SayUno", { roomCode, playerId });
   }, []);
@@ -110,6 +131,10 @@ export function useSocket({
     socketInstance?.emit("play_again", { roomCode, hostId });
   }, []);
 
+  const intentionalDiscontect = useCallback(() => {
+    socketInstance?.emit("intentional_leave");
+  });
+
   const reconnect = useCallback((roomCode, userId, reconnectToken) => {
     socketInstance?.emit("reconnect_player", {
       roomCode,
@@ -118,14 +143,24 @@ export function useSocket({
     });
   }, []);
 
+  const disconnect = useCallback(() => {
+    if (socketInstance) {
+      socketInstance.disconnect();
+      socketInstance = null;
+    }
+  }, []);
+
   return {
-    joinRoom,   
+    joinRoom,
     startGame,
     playCard,
     drawCard,
+    passTurn,
     sayUno,
     callOut,
     playAgain,
     reconnect,
+    disconnect,
+    intentionalDiscontect,
   };
 }

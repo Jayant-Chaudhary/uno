@@ -376,4 +376,12 @@ function callOut(state, callerId, targetId) {
   return state;
 }
 
-export { generateDeck, shuffleDeck, dealCard, playCard, drawCards, callOut ,isValidPlay };
+module.exports = {
+  generateDeck,
+  shuffleDeck,
+  dealCard,
+  playCard,
+  drawCards,
+  callOut,
+  isValidPlay,
+};

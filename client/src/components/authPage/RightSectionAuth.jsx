@@ -14,7 +14,7 @@ const RightSectionAuth = () => {
   const resetForm = () => {
     setEmail("");
     setPassword("");
-    setUsername("");
+    setusername("");
   };
 
   // api caller

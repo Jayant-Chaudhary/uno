@@ -17,6 +17,8 @@ exports.createRoom = async (req, res) => {
 exports.joinRoom = async (req, res) => {
   try {
     const { roomCode, guestName } = req.body;
+    const userId = req.user?.userId || null; // softAuth already handled this
+
     if (guestName !== undefined) {
       if (typeof guestName !== "string" || guestName.trim().length < 2) {
         return res
@@ -30,25 +32,10 @@ exports.joinRoom = async (req, res) => {
       }
     }
 
-    let userId = null;
-    const token = req.cookies?.token;
-    if (token) {
-      try {
-        const jwt = require("jsonwebtoken");
-        const decoded = jwt.verify(token, process.env.JWT_SECRET);
-        const db = require("../db");
-        const session = await db.query(
-          `SELECT * FROM sessions WHERE user_id=$1 AND token=$2 AND expires_at > now()`,
-          [decoded.userId, token],
-        );
-        if (session.rows.length > 0) userId = decoded.userId;
-      } catch (_) {}
-    }
-
     const result = await roomManager.joinRoom(
       roomCode,
       userId,
-      guestName ? guestName.trim() : null, // trim whitespace too
+      guestName ? guestName.trim() : null,
     );
     res.json(result);
   } catch (err) {
@@ -67,10 +54,26 @@ exports.getRoomCode = async (req, res) => {
 
 exports.leavePlayer = async (req, res) => {
   try {
+    const userId = req.user?.userId || null;
+    const reconnectToken = req.query.reconnectToken || null;
+
+    if (!userId && !reconnectToken) {
+      return res.status(400).json({ error: "No identity provided" });
+    }
+
     const state = await roomManager.leaveRoom(
       req.params.roomCode,
-      req.user.userId,
+      userId,
+      reconnectToken,
     );
+    const io = req.app.get("io");
+
+    if (state === null) {
+      io.to(req.params.roomCode).emit("room_deleted");
+      return res.json({ roomDeleted: true });
+    }
+
+    io.to(req.params.roomCode).emit("room_update", state);
     res.json(state);
   } catch (err) {
     res.status(400).json({ error: err.message });

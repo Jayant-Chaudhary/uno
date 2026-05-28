@@ -1,9 +1,5 @@
 const db = require("../db");
-module.exports = async function createSession(
-  user_id,
-  token,
-  req
-) {
+module.exports = async function createSession(user_id, token, req) {
   await db.query(
     `
       INSERT INTO sessions (
@@ -14,11 +10,6 @@ module.exports = async function createSession(
       )
       VALUES ($1,$2,$3,$4)
     `,
-    [
-      user_id,
-      token,
-      req.ip,
-      req.headers["user-agent"],
-    ]
+    [user_id, token, req.ip, req.headers["user-agent"]],
   );
 };

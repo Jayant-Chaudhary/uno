@@ -28,6 +28,7 @@ const AVATAR_FG = [
   "#a5b4fc",
 ];
 
+//helpers
 function getInitials(name = "") {
   return name
     .split(" ")
@@ -40,7 +41,6 @@ function getInitials(name = "") {
 function Avatar({ player, index }) {
   const name =
     player.display_name || player.username || player.guest_name || "?";
-  // registered users may have emoji avatar
   if (player.avatar_emoji) {
     return (
       <div
@@ -77,7 +77,7 @@ const Lobby = () => {
 
   const countdownRef = useRef(null);
 
-  // read from localStorage — set during CreateRoom / JoinRoom
+  //local-storage user
   const currentUser = JSON.parse(localStorage.getItem("uno_user") || "null");
 
   const isHost = room && currentUser && room.host_id === currentUser.userId;
@@ -85,7 +85,7 @@ const Lobby = () => {
 
   const cardsPerPlayer = players.length >= 9 ? 5 : players.length >= 5 ? 6 : 7;
 
-  // ── Socket callbacks ────────────────────────────────────────────────────────
+  //Socket callbacks
   const handleRoomUpdate = useCallback(({ room: r, players: p }) => {
     if (r) setRoom(r);
     if (p) setPlayers(p);
@@ -117,10 +117,29 @@ const Lobby = () => {
     toast.error(message);
   }, []);
 
-  const { joinRoom, startGame } = useSocket({
+  const handlePlayerDisconnected = useCallback(
+    ({ socketId }) => {
+      API.get(`/rooms/${roomCode}`)
+        .then((res) => {
+          setRoom(res.data.room);
+          setPlayers(res.data.players);
+        })
+        .catch(() => {});
+    },
+    [roomCode],
+  );
+
+  const handleRoomDeleted = useCallback(() => {
+    toast.error("Host left — room closed");
+    navigate("/");
+  }, [navigate]);
+
+  const { joinRoom, startGame, disconnect, intentionalDiscontect } = useSocket({
     onRoomUpdate: handleRoomUpdate,
     onGameStarted: handleGameStarted,
     onBackToLobby: handleBackToLobby,
+    onRoomDeleted: handleRoomDeleted,
+    onPlayerDisconnected: handlePlayerDisconnected,
     onError: handleError,
   });
 
@@ -136,6 +155,7 @@ const Lobby = () => {
         navigate("/");
         return;
       }
+      console.log("calling joinRoom with:", roomCode, currentUser?.userId);
       joinRoom(roomCode, currentUser?.userId, currentUser?.reconnectToken);
     }
     init();
@@ -152,8 +172,16 @@ const Lobby = () => {
 
   const handleLeave = async () => {
     try {
-      await API.delete(`/rooms/${roomCode}/leave`);
+      const stored = JSON.parse(localStorage.getItem("uno_user") || "null");
+      await API.delete(`/rooms/${roomCode}/leave`, {
+        params: {
+          reconnectToken: stored?.reconnectToken || null,
+        },
+      });
     } catch (_) {}
+    localStorage.removeItem("uno_user");
+    intentionalDiscontect();
+    disconnect();
     navigate("/");
   };
 
@@ -554,7 +582,7 @@ const Lobby = () => {
         <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
           {/* header */}
           <div className="flex items-center justify-between pt-2">
-            <LeftSection/>
+            <LeftSection />
           </div>
 
           {RoomCodeCard}
@@ -578,7 +606,7 @@ const Lobby = () => {
 
       {/* ── DESKTOP layout (>= md) ── */}
       <div className="relative z-10 hidden md:flex md:flex-col lg:flex-row items-center justify-center h-full p-6">
-          <LeftSection/>
+        <LeftSection />
         <div className="w-full max-w-3xl flex flex-col gap-5">
           {/* header */}
 

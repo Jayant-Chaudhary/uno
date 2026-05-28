@@ -343,7 +343,7 @@ const RightSectionRoomCreator = () => {
           <p className="text-center text-xs text-white/25">
             Want to join instead?{" "}
             <span
-              onClick={() => navigate("/join")}
+              onClick={() => navigate("/joinRoom")}
               className="text-purple-300/60 hover:text-purple-300 cursor-pointer transition-colors"
             >
               Join a room

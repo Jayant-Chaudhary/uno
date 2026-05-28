@@ -8,6 +8,7 @@ const passport = require("passport");
 const cors = require("cors");
 require("./server/config/passport");
 const authRoutes = require("./server/routes/authroutes");
+const { registerGameEvents } = require("./server/gameSockets/gameEvent");
 
 const gameRoutes = require("./server/routes/roomRoutes");
 const app = express();
@@ -32,6 +33,7 @@ app.use(express.json());
 app.use(cookieParser());
 app.use(passport.initialize());
 
+app.set("io", io);
 app.use("/api/auth", authRoutes);
 app.use("/api/rooms", gameRoutes);
 app.get("/", (req, res) => {
@@ -39,6 +41,7 @@ app.get("/", (req, res) => {
     status: "Server running",
   });
 });
+registerGameEvents(io);
 
 server.listen(5000, () => {
   console.log("Server running on port 5000");

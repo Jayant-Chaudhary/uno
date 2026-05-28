@@ -8,8 +8,8 @@ const Rightsection = () => {
   async function handleClick(mode) {
     await setClicked(mode);
     if (clicked == "offline") {
-      await navigate("/auth");
-    }else{
+      await navigate("/roomCreator");
+    }else if(clicked=="online"){
       await navigate("/joinRoom")
     }
 

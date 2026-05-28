@@ -381,6 +381,7 @@ exports.resetPassword = async (req, res) => {
 };
 
 exports.refresh = async (req, res) => {
+  console.log("refresh request");
   try {
     const refreshToken = req.cookies.refresh_token;
 
@@ -398,11 +399,12 @@ exports.refresh = async (req, res) => {
       `
       SELECT *
       FROM sessions
-      WHERE refresh_token = $1
+      WHERE token = $1
       AND expires_at > now()
       `,
       [refreshToken],
     );
+
 
     if (session.rows.length === 0) {
       return res.status(401).json({
@@ -424,12 +426,24 @@ exports.refresh = async (req, res) => {
 
     // new access token
     const newAccessToken = generateAccessToken(user);
+    const newRefreshToken = crypto.randomBytes(40).toString("hex");
+    await db.query(
+      `UPDATE sessions SET refresh_token = $1 WHERE refresh_token = $2`,
+      [newRefreshToken, refreshToken],
+    );
 
     res.cookie("access_token", newAccessToken, {
       httpOnly: true,
       secure: false,
       sameSite: "lax",
       maxAge: 15 * 60 * 1000,
+    });
+
+    res.cookie("refresh_token", newRefreshToken, {
+      httpOnly: true,
+      secure: false,
+      sameSite: "lax",
+      maxAge: 7 * 24 * 60 * 60 * 1000,
     });
 
     res.json({

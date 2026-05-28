@@ -107,7 +107,7 @@ async function createRoom(hostId, options = {}) {
    WHERE room_id = $3 AND user_id = $4`,
     [displayName, avatarEmoji, room.room_id, hostId],
   );
-  
+
   console.log(room); //debugs
   return room;
 }
@@ -234,111 +234,142 @@ async function joinRoom(roomCode, userId = null, guestName = null) {
   };
 }
 //game leaving
-async function leaveRoom(roomCode, userId = null, socketId = null) {
+async function leaveRoom(roomCode, userId = null, reconnectToken = null) {
   const roomResult = await findroom(roomCode);
-
-  if (roomResult.rows.length === 0) {
-    throw new Error("Room not found");
-  }
+  if (roomResult.rows.length === 0) throw new Error("Room not found");
 
   const room = roomResult.rows[0];
-
   let playerResult;
-
   if (userId) {
     playerResult = await db.query(
-      `
-          SELECT *
-          FROM room_players
-          WHERE room_id = $1
-            AND user_id = $2
-            AND status = 'active'
-        `,
+      `SELECT * FROM room_players
+       WHERE room_id = $1 AND user_id = $2
+         AND status IN ('active', 'disconnected')`,
       [room.room_id, userId],
     );
-  } else if (socketId) {
+  } else {
     playerResult = await db.query(
       `
-          SELECT *
-          FROM room_players
-          WHERE room_id = $1
-            AND socket_id = $2
-            AND status = 'active'
-        `,
-      [room.room_id, socketId],
-    );
-  } else {
-    throw new Error("userId or socketId required");
-  }
-
-  if (playerResult.rows.length === 0) {
-    throw new Error("Player not found in room");
-  }
-
-  const player = playerResult.rows[0];
-
-  await db.query(
-    `
-      UPDATE room_players
-      SET status = 'left'
-      WHERE id = $1
+    SELECT *
+    FROM room_players
+    WHERE room_id = $1
+      AND reconnect_token = $2
+      AND status IN ('active', 'disconnected')
     `,
+      [room.room_id, reconnectToken],
+    );
+  }
+
+  if (playerResult.rows.length === 0)
+    throw new Error("Player not found in room");
+  const player = playerResult.rows[0];
+  await db.query(
+    `UPDATE room_players SET status = 'left', socket_id = NULL WHERE id = $1`,
     [player.id],
   );
 
+  if (room.status === "finished") {
+    return await getRoomState(roomCode);
+  }
+
   const activePlayersResult = await db.query(
-    `
-        SELECT *
-        FROM room_players
-        WHERE room_id = $1
-          AND status = 'active'
-        ORDER BY player_index ASC
-      `,
+    `SELECT * FROM room_players
+     WHERE room_id = $1 AND status = 'active'
+     ORDER BY player_index ASC`,
     [room.room_id],
   );
-
   const activePlayers = activePlayersResult.rows;
+  if (activePlayers.length === 0) {
+    await db.query(
+      `UPDATE rooms SET status = 'finished', last_activity = now() WHERE room_id = $1`,
+      [room.room_id],
+    );
+    return await getRoomState(roomCode);
+  }
 
-  if (room.host_id && player.user_id === room.host_id) {
-    if (activePlayers.length > 0) {
-      let index = 0;
-      while (activePlayers[index].user_id == null) {
-        index++;
-      }
-      const newHost = activePlayers[index];
+  // ── host transfer ─────────────────────────────────────────────────────────
+  const isHost = room.host_id && player.user_id === room.host_id;
 
-      if (newHost.user_id) {
-        await db.query(
-          `
-            UPDATE rooms
-            SET host_id = $1
-            WHERE room_id = $2
-          `,
-          [newHost.user_id, room.room_id],
-        );
+  if (isHost) {
+    if (room.status === "waiting") {
+      // in waiting — only registered users can be host
+      // find next registered player
+      const nextRegistered = activePlayers.find((p) => p.user_id != null);
+
+      if (!nextRegistered) {
+        // no registered users left — delete the room entirely
+        await deleteRoom(room.room_id);
+        return null; // caller should handle null as "room gone"
       }
+
+      await db.query(`UPDATE rooms SET host_id = $1 WHERE room_id = $2`, [
+        nextRegistered.user_id,
+        room.room_id,
+      ]);
+    } else {
+      // mid-game — transfer to any active player (guest is fine)
+      // prefer registered users but fall back to guests
+      const nextHost =
+        activePlayers.find((p) => p.user_id != null) || activePlayers[0];
+
+      if (nextHost.user_id) {
+        await db.query(`UPDATE rooms SET host_id = $1 WHERE room_id = $2`, [
+          nextHost.user_id,
+          room.room_id,
+        ]);
+      }
+      // if new host is a guest, host_id stays as the old user_id
+      // which is fine — mid-game host only controls play_again
     }
   }
 
-  if (activePlayers.length === 0) {
-    await db.query(
-      `
-        UPDATE rooms
-        SET status = 'finished'
-        WHERE room_id = $1
-      `,
-      [room.room_id],
-    );
-  }
+  // ── mid-game: remove player from game_state ───────────────────────────────
+  if (room.status === "active" && room.game_state) {
+    let gameState = room.game_state;
 
-  await db.query(
-    `
-      UPDATE rooms
-      SET last_activity = now()
-      WHERE room_id = $1
-    `,
-    [room.room_id],
-  );
+    const leavingId = userId ? userId : `guest_${player.id}`;
+
+    const leavingIndex = gameState.players.findIndex((p) => p.id === leavingId);
+
+    if (leavingIndex !== -1) {
+      // put their cards back into the deck
+      const leavingCards = gameState.players[leavingIndex].hand;
+      gameState.deck.push(...leavingCards);
+
+      // remove them from players array
+      gameState.players.splice(leavingIndex, 1);
+
+      // fix currentPlayerIndex if needed
+      if (gameState.players.length === 0) {
+        // impossible but guard anyway
+        gameState.gameOver = true;
+      } else {
+        // if we removed someone before or at current index, shift back
+        if (leavingIndex <= gameState.currentPlayerIndex) {
+          gameState.currentPlayerIndex = Math.max(
+            0,
+            gameState.currentPlayerIndex - 1,
+          );
+        }
+
+        gameState.currentPlayerIndex =
+          gameState.currentPlayerIndex % gameState.players.length;
+
+        if (gameState.players.length === 1) {
+          gameState.gameOver = true;
+          gameState.winner = gameState.players[0].id;
+        }
+      }
+
+      await db.query(
+        `UPDATE rooms SET game_state = $1, last_activity = now() WHERE room_id = $2`,
+        [JSON.stringify(gameState), room.room_id],
+      );
+    }
+  }
+  await db.query(`UPDATE rooms SET last_activity = now() WHERE room_id = $1`, [
+    room.room_id,
+  ]);
 
   return await getRoomState(roomCode);
 }
