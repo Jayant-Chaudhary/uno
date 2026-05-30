@@ -17,10 +17,12 @@ export function useSocket({
   onError,
   onReconnected,
   onRoomDeleted,
+  onTokenExpired,
+  onCardDrawnPrivate,   // ← was in handlersRef but missing from the signature
 } = {}) {
   const handlersRef = useRef({});
 
-  // for refreshing the handlers
+  // always keep handlers ref fresh so callbacks never go stale
   useEffect(() => {
     handlersRef.current = {
       onRoomUpdate,
@@ -34,26 +36,47 @@ export function useSocket({
       onError,
       onReconnected,
       onRoomDeleted,
+      onTokenExpired,
+      onCardDrawnPrivate,  // ← was missing here too
     };
   });
 
   useEffect(() => {
-    // create socket once
     if (!socketInstance) {
       socketInstance = io(SOCKET_URL, {
         withCredentials: true,
         autoConnect: true,
       });
 
-      //debugs
       socketInstance.on("connect", () => {
         console.log("socket connected:", socketInstance.id);
       });
-      socketInstance.on("connect_error", (err) => {
+      socketInstance.on("connect_error", (err) => { 
         console.log("connect error:", err.message);
       });
       socketInstance.on("disconnect", (reason) => {
         console.log("disconnected:", reason);
+      });
+
+      // ── token_expired: inside the creation block so it is registered
+      //    exactly once on the singleton, not on every render ──────────────
+      socketInstance.on("token_expired", async () => {
+        try {
+          await fetch(`${SOCKET_URL}/auth/refresh`, {
+            method: "POST",
+            credentials: "include",
+          });
+          // also notify any UI layer that wants to show a "reconnecting" toast
+          if (handlersRef.current.onTokenExpired) {
+            handlersRef.current.onTokenExpired();
+          }
+          // full disconnect + reconnect so the handshake uses the fresh cookie
+          socketInstance.disconnect();
+          socketInstance.connect();
+        } catch {
+          window.location.href = "/auth";
+        }
+
       });
     }
 
@@ -66,21 +89,22 @@ export function useSocket({
     };
 
     const handlers = {
-      room_update: (d) => dispatch("onRoomUpdate", d),
-      joined: (d) => dispatch("onRoomUpdate", d),
-      game_started: (d) => dispatch("onGameStarted", d),
-      game_update: (d) => dispatch("onGameUpdate", d),
-      game_over: (d) => dispatch("onGameOver", d),
-      uno_called: (d) => dispatch("onUnoCalled", d),
+      room_update:         (d) => dispatch("onRoomUpdate", d),
+      joined:              (d) => dispatch("onRoomUpdate", d),
+      game_started:        (d) => dispatch("onGameStarted", d),
+      game_update:         (d) => dispatch("onGameUpdate", d),
+      game_over:           (d) => dispatch("onGameOver", d),
+      uno_called:          (d) => dispatch("onUnoCalled", d),
       player_disconnected: (d) => dispatch("onPlayerDisconnected", d),
-      player_reconnected: (d) => dispatch("onPlayerReconnected", d),
-      back_to_lobby: (d) => dispatch("onBackToLobby", d),
-      error: (d) => dispatch("onError", d),
-      reconnected: (d) => dispatch("onReconnected", d),
-      room_deleted: (d) => dispatch("onRoomDeleted", d),
+      player_reconnected:  (d) => dispatch("onPlayerReconnected", d),
+      back_to_lobby:       (d) => dispatch("onBackToLobby", d),
+      error:               (d) => dispatch("onError", d),
+      reconnected:         (d) => dispatch("onReconnected", d),
+      room_deleted:        (d) => dispatch("onRoomDeleted", d),
+      card_drawn_private:  (d) => dispatch("onCardDrawnPrivate", d),
+
     };
 
-    // remove any existing listeners first to prevent stacking
     Object.entries(handlers).forEach(([event, handler]) => {
       s.off(event);
       s.on(event, handler);
@@ -93,7 +117,7 @@ export function useSocket({
     };
   }, []);
 
-  // emitters
+  // ── emitters ───────────────────────────────────────────────────────────────
   const joinRoom = useCallback((roomCode, userId, reconnectToken) => {
     socketInstance?.emit("joinRoom", { roomCode, userId, reconnectToken });
   }, []);
@@ -103,12 +127,7 @@ export function useSocket({
   }, []);
 
   const playCard = useCallback((roomCode, playerId, cardId, chosenColor) => {
-    socketInstance?.emit("PlayCards", {
-      roomCode,
-      playerId,
-      cardId,
-      chosenColor,
-    });
+    socketInstance?.emit("PlayCards", { roomCode, playerId, cardId, chosenColor });
   }, []);
 
   const drawCard = useCallback((roomCode, playerId) => {
@@ -133,14 +152,10 @@ export function useSocket({
 
   const intentionalDiscontect = useCallback(() => {
     socketInstance?.emit("intentional_leave");
-  });
+  }, []);   // ← was missing dependency array
 
   const reconnect = useCallback((roomCode, userId, reconnectToken) => {
-    socketInstance?.emit("reconnect_player", {
-      roomCode,
-      userId,
-      reconnectToken,
-    });
+    socketInstance?.emit("reconnect_player", { roomCode, userId, reconnectToken });
   }, []);
 
   const disconnect = useCallback(() => {

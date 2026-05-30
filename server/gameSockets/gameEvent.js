@@ -1,4 +1,5 @@
 const roomManager = require("../roomManger");
+const buildPublicState = require("../utils/buildPublicState");
 const db = require("../db");
 const {
   generateDeck,
@@ -30,19 +31,21 @@ async function updateSocketId(roomId, userId, reconnectToken, socketId) {
     );
   }
 }
-
-function buildPublicState(gameState, forPlayerId = null) {
-  return {
-    ...gameState,
-    players: gameState.players.map((p) => ({
-      id: p.id,
-      name: p.name,
-      avatarEmoji: p.avatarEmoji,
-      cardCount: p.hand.length,
-      hand: p.id === forPlayerId ? p.hand : undefined,
-    })),
-    deck: undefined,
-  };
+function broadcastGameUpdate(io, roomCode, gameState, extraData = {}) {
+  // personalised — each player sees their own hand
+  gameState.players.forEach((p) => {
+    if (p.socketId) {
+      io.to(p.socketId).emit("game_update", {
+        gameState: buildPublicState.buildPublicState(gameState, p.id),
+        ...extraData,
+      });
+    } else {
+      // socketId missing — log it so you know who needs a reconnect
+      console.warn(
+        `broadcastGameUpdate: player ${p.id} has no socketId, skipping`,
+      );
+    }
+  });
 }
 
 function registerGameEvents(io) {
@@ -67,6 +70,16 @@ function registerGameEvents(io) {
           socket.id,
         );
         socket.join(roomCode); // join FIRST then emit
+        if (room.status === "active" && room.game_state) {
+          const playerId = userId || reconnectToken;
+          const playerInState = room.game_state.players.find(
+            (p) => p.id === playerId,
+          );
+          if (playerInState) {
+            playerInState.socketId = socket.id;
+            await saveGameState(room.room_id, room.game_state);
+          }
+        }
         const socketsInRoom = await io.in(roomCode).allSockets();
         console.log("sockets in room after join:", [...socketsInRoom]);
         io.to(roomCode).emit("room_update", { room, players });
@@ -92,12 +105,13 @@ function registerGameEvents(io) {
         }
 
         const gamePlayers = players.map((p, i) => ({
-          id: p.user_id || `guest_${p.id}`,
+          id: p.user_id || p.reconnect_token,
           name: p.display_name || p.username || p.guest_name,
           avatarEmoji: p.avatar_emoji || null,
           hand: [],
           socketId: p.socket_id,
         }));
+        console.log(gamePlayers);
 
         let gameState = {
           players: gamePlayers,
@@ -124,7 +138,7 @@ function registerGameEvents(io) {
         gamePlayers.forEach((p) => {
           if (p.socketId) {
             io.to(p.socketId).emit("game_started", {
-              gameState: buildPublicState(gameState, p.id),
+              gameState: buildPublicState.buildPublicState(gameState, p.id),
             });
           }
         });
@@ -147,6 +161,10 @@ function registerGameEvents(io) {
           }
           const room = roomResult.rows[0]; // ← .rows[0]
           let gameState = room.game_state;
+          const currentPlayer = gameState.players[gameState.currentPlayerIndex];
+          if (currentPlayer.id !== playerId) {
+            return socket.emit("error", { message: "Not your turn" });
+          }
 
           gameState = playCard(
             gameState,
@@ -155,16 +173,10 @@ function registerGameEvents(io) {
             chosenColor || null,
           );
           await saveGameState(room.room_id, gameState);
-
-          gameState.players.forEach((p) => {
-            if (p.socketId) {
-              io.to(p.socketId).emit("game_update", {
-                gameState: buildPublicState(gameState, p.id),
-                event: "card_played",
-                by: playerId,
-                cardId,
-              });
-            }
+          broadcastGameUpdate(io, roomCode, gameState, {
+            event: "card_played",
+            by: playerId,
+            cardId,
           });
 
           if (gameState.gameOver) {
@@ -214,18 +226,16 @@ function registerGameEvents(io) {
         }
 
         await saveGameState(room.room_id, gameState);
-
-        gameState.players.forEach((p) => {
-          if (p.socketId) {
-            io.to(p.socketId).emit("game_update", {
-              gameState: buildPublicState(gameState, p.id),
-              event: "card_drawn",
-              by: playerId,
-              canPlay,
-              drawnCard: p.id === playerId ? drawnCard : undefined,
-            });
-          }
+        broadcastGameUpdate(io, roomCode, gameState, {
+          event: "card_drawn",
+          by: playerId,
+          canPlay,
         });
+
+        // send the actual drawn card only to the player who drew it
+        if (player.socketId) {
+          io.to(player.socketId).emit("card_drawn_private", { drawnCard });
+        }
       } catch (err) {
         socket.emit("error", { message: err.message });
       }
@@ -265,15 +275,10 @@ function registerGameEvents(io) {
         gameState = callOut(gameState, callerId, targetId);
         await saveGameState(room.room_id, gameState);
 
-        gameState.players.forEach((p) => {
-          if (p.socketId) {
-            io.to(p.socketId).emit("game_update", {
-              gameState: buildPublicState(gameState, p.id),
-              event: "callout",
-              callerId,
-              targetId,
-            });
-          }
+        broadcastGameUpdate(io, roomCode, gameState, {
+          event: "callout",
+          callerId,
+          targetId,
         });
       } catch (err) {
         socket.emit("error", { message: err.message });
@@ -305,11 +310,24 @@ function registerGameEvents(io) {
 
           socket.join(roomCode);
 
-          const gameState = result.gameState;
-          const playerId = userId || `guest_${result.player.id}`;
+          let gameState = result.gameState;
+
+          const playerId = userId || reconnectToken;
+
+          if (gameState) {
+            const playerInState = gameState.players.find(
+              (p) => p.id === playerId,
+            );
+            if (playerInState) {
+              playerInState.socketId = socket.id;
+              await saveGameState(result.room.room_id, gameState);
+            }
+          }
 
           socket.emit("reconnected", {
-            gameState: gameState ? buildPublicState(gameState, playerId) : null,
+            gameState: gameState
+              ? buildPublicState.buildPublicState(gameState, playerId)
+              : null,
             room: result.room,
           });
 
@@ -342,14 +360,9 @@ function registerGameEvents(io) {
 
         await saveGameState(room.room_id, gameState);
 
-        gameState.players.forEach((p) => {
-          if (p.socketId) {
-            io.to(p.socketId).emit("game_update", {
-              gameState: buildPublicState(gameState, p.id),
-              event: "turn_passed",
-              by: playerId,
-            });
-          }
+        broadcastGameUpdate(io, roomCode, gameState, {
+          event: "turn_passed",
+          by: playerId,
         });
       } catch (err) {
         socket.emit("error", { message: err.message });
@@ -358,23 +371,30 @@ function registerGameEvents(io) {
 
     // ── disconnect ───────────────────────────────────────────────────────────
     socket.on("disconnecting", async () => {
+      const DISCONNECT_GRACE_MS = 3000;
       if (socket.intentionalLeave) return;
       const rooms = [...socket.rooms].filter((r) => r !== socket.id);
       for (const roomCode of rooms) {
-        try {
-          const updated = await roomManager.disconnectPlayer(
-            roomCode,
-            socket.id,
-          );
-          if (updated === null) {
-            // Room was deleted (host left)
-            io.to(roomCode).emit("room_deleted");
-          } else if (updated) {
-            io.to(roomCode).emit("player_disconnected", {
-              socketId: socket.id,
-            });
+        setTimeout(async () => {
+          try {
+            const updated = await roomManager.disconnectPlayer(
+              roomCode,
+              socket.id,
+            );
+            if (updated === null) {
+              io.to(roomCode).emit("room_deleted");
+            } else if (updated) {
+              io.to(roomCode).emit("player_disconnected", {
+                socketId: socket.id,
+              });
+            }
+          } catch (err) {
+            console.error(
+              `disconnectPlayer error for room ${roomCode}:`,
+              err.message,
+            );
           }
-        } catch (_) {}
+        }, DISCONNECT_GRACE_MS);
       }
     });
 

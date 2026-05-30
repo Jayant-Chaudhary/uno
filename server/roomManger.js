@@ -210,6 +210,7 @@ async function joinRoom(roomCode, userId = null, guestName = null) {
           rp.joined_at,
 
           rp.user_id,
+          rp.reconnect_token,
 
           rp.guest_name,
 
@@ -227,6 +228,7 @@ async function joinRoom(roomCode, userId = null, guestName = null) {
       `,
     [room.room_id],
   );
+  console.log("players data from room manager join room ", playersResult.rows);
   return {
     room,
     players: playersResult.rows,
@@ -284,7 +286,7 @@ async function leaveRoom(roomCode, userId = null, reconnectToken = null) {
       `UPDATE rooms SET status = 'finished', last_activity = now() WHERE room_id = $1`,
       [room.room_id],
     );
-    return await getRoomState(roomCode);
+    return await get(roomCode);
   }
 
   // ── host transfer ─────────────────────────────────────────────────────────
@@ -327,9 +329,11 @@ async function leaveRoom(roomCode, userId = null, reconnectToken = null) {
   if (room.status === "active" && room.game_state) {
     let gameState = room.game_state;
 
-    const leavingId = userId ? userId : `guest_${player.id}`;
+    const leavingId = userId ? userId : reconnectToken;
 
-    const leavingIndex = gameState.players.findIndex((p) => p.id === leavingId);
+    const leavingIndex = gameState.players.findIndex(
+      (p) => p.id === leavingId || p.id === reconnectToken,
+    );
 
     if (leavingIndex !== -1) {
       // put their cards back into the deck
@@ -390,6 +394,7 @@ async function getRoomState(roomCode) {
           rp.status,
           rp.joined_at,
           rp.socket_id,
+          rp.reconnect_token,
 
           rp.user_id,
           rp.guest_name,
@@ -471,10 +476,12 @@ async function disconnectPlayer(roomCode, socketId) {
         SELECT COUNT(*)::INT AS count
         FROM room_players
         WHERE room_id = $1
+        AND socket_id = $2 
           AND status = 'active'
       `,
-    [room.room_id],
+    [room.room_id, socketId],
   );
+  if (playerResult.rows.length === 0) return false;
 
   const activePlayers = activePlayersResult.rows[0].count;
 
@@ -536,22 +543,25 @@ async function reconnectPlayer(
           FROM room_players
           WHERE room_id = $1
             AND user_id = $2
-            AND status = 'disconnected'
+            AND status IN ('active', 'disconnected')
         `,
       [room.room_id, userId],
     );
   } else {
+    // imp change for debug --- check once
     playerResult = await db.query(
       `
           SELECT *
           FROM room_players
           WHERE room_id = $1
             AND reconnect_token = $2
-            AND status = 'disconnected'
+            AND status IN ('active', 'disconnected')
+           
         `,
       [room.room_id, reconnectToken],
     );
   }
+  console.log("player results from room manager", playerResult.rows); //debugs
 
   if (playerResult.rows.length === 0) {
     throw new Error("Player not found or not disconnected");

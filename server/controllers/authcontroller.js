@@ -405,7 +405,6 @@ exports.refresh = async (req, res) => {
       [refreshToken],
     );
 
-
     if (session.rows.length === 0) {
       return res.status(401).json({
         error: "Invalid session",
@@ -426,9 +425,13 @@ exports.refresh = async (req, res) => {
 
     // new access token
     const newAccessToken = generateAccessToken(user);
-    const newRefreshToken = crypto.randomBytes(40).toString("hex");
+    const newRefreshToken = jwt.sign(
+      { user_id: user.user_id },
+      process.env.JWT_REFRESH_SECRET,
+      { expiresIn: "7d" },
+    );
     await db.query(
-      `UPDATE sessions SET refresh_token = $1 WHERE refresh_token = $2`,
+      `UPDATE sessions SET token = $1,expires_at = now() + interval '7 days' WHERE token = $2`,
       [newRefreshToken, refreshToken],
     );
 

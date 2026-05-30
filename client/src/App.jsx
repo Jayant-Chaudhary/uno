@@ -7,6 +7,7 @@ import Lobby from "./pages/Lobby";
 import { Toaster } from "react-hot-toast";
 import RoomCreator from "./pages/RoomCreator";
 import JoinRoom from "./pages/JoinRoom";
+import Game from "./pages/Game";
 const App = () => {
   const [darkMode, setDarkMode] = useState(true);
 
@@ -19,6 +20,7 @@ const App = () => {
         <Route path="/lobby/:roomCode" element={<Lobby />} />
         <Route path="/joinRoom" element={<JoinRoom />} />
         <Route path="/roomCreator" element={<RoomCreator />} />
+        <Route path="/game/:roomCode" element={<Game />} />
 
         <Route path="/auth" element={<Auth />}></Route>
       </Routes>
