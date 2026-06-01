@@ -14,10 +14,15 @@ const gameRoutes = require("./server/routes/roomRoutes");
 const app = express();
 
 const server = http.createServer(app);
+console.log("server running");
+console.log("CLIENT_API =", process.env.CLIENT_API);
 
 const io = new Server(server, {
   cors: {
-    origin: process.env.CLIENT_API,
+    origin: (origin, callback) => {
+      console.log("Incoming origin:", origin);
+      callback(null, origin);
+    },
     methods: ["GET", "POST"],
     credentials: true,
   },
@@ -25,10 +30,14 @@ const io = new Server(server, {
 
 app.use(
   cors({
-    origin: process.env.CLIENT_API,
+    origin: (origin, callback) => {
+      console.log("Incoming origin:", origin);
+      callback(null, origin);
+    },
     credentials: true,
   }),
 );
+
 app.use(express.json());
 app.use(cookieParser());
 app.use(passport.initialize());
@@ -43,6 +52,6 @@ app.get("/", (req, res) => {
 });
 registerGameEvents(io);
 
-server.listen(5000, () => {
+server.listen(5000, "0.0.0.0", () => {
   console.log("Server running on port 5000");
 });

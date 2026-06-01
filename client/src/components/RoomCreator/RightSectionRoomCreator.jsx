@@ -26,9 +26,11 @@ const RightSectionRoomCreator = () => {
         setInputName(u.username || "");
         if (u.avatar_emoji) setEmoji(u.avatar_emoji);
       })
-      .catch(() => {
+      .catch((error) => {
+        console.log(error.code);
+        console.log(error.message);
+
         toast.error("Please sign in first");
-        navigate("/auth");
       })
       .finally(() => setFetching(false));
   }, []);

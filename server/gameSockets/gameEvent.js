@@ -10,6 +10,7 @@ const {
   callOut,
   isValidPlay,
 } = require("../gameEngine");
+const { startTurnTimer, clearTurnTimer } = require("./TurnTimer");
 
 async function saveGameState(roomId, gameState) {
   await db.query(
@@ -46,6 +47,13 @@ function broadcastGameUpdate(io, roomCode, gameState, extraData = {}) {
       );
     }
   });
+}
+
+function stampTurnTimer(gameState) {
+  gameState.turnTimer = {
+    startedAt: Date.now(),
+    durationMs: 30_000,
+  };
 }
 
 function registerGameEvents(io) {
@@ -126,9 +134,11 @@ function registerGameEvents(io) {
           pendingUno: null,
           gameOver: false,
           winner: null,
+          disconnectedSkips: {},
         };
 
         gameState = dealCard(gameState); // not async
+        stampTurnTimer(gameState);
 
         await db.query(
           `UPDATE rooms SET status = 'active', game_state = $1 WHERE room_id = $2`,
@@ -142,6 +152,7 @@ function registerGameEvents(io) {
             });
           }
         });
+        startTurnTimer(io, roomCode, db, saveGameState, broadcastGameUpdate);
       } catch (err) {
         socket.emit("error", { message: err.message });
       }
@@ -152,6 +163,7 @@ function registerGameEvents(io) {
       "PlayCards",
       async ({ roomCode, playerId, cardId, chosenColor }) => {
         try {
+          clearTurnTimer(roomCode);
           const roomResult = await db.query(
             `SELECT * FROM rooms WHERE room_code = $1`,
             [roomCode],
@@ -172,6 +184,7 @@ function registerGameEvents(io) {
             cardId,
             chosenColor || null,
           );
+          stampTurnTimer(gameState);
           await saveGameState(room.room_id, gameState);
           broadcastGameUpdate(io, roomCode, gameState, {
             event: "card_played",
@@ -191,7 +204,9 @@ function registerGameEvents(io) {
               [room.room_id],
             );
           }
+          startTurnTimer(io, roomCode, db, saveGameState, broadcastGameUpdate);
         } catch (err) {
+          startTurnTimer(io, roomCode, db, saveGameState, broadcastGameUpdate);
           socket.emit("error", { message: err.message });
         }
       },
@@ -200,6 +215,8 @@ function registerGameEvents(io) {
     // ── draw_card ────────────────────────────────────────────────────────────
     socket.on("draw_card", async ({ roomCode, playerId }) => {
       try {
+        clearTurnTimer(roomCode);
+
         const roomResult = await db.query(
           `SELECT * FROM rooms WHERE room_code = $1`,
           [roomCode],
@@ -224,6 +241,7 @@ function registerGameEvents(io) {
             (gameState.currentPlayerIndex + gameState.direction + playercount) %
             playercount;
         }
+        stampTurnTimer(gameState);
 
         await saveGameState(room.room_id, gameState);
         broadcastGameUpdate(io, roomCode, gameState, {
@@ -231,12 +249,9 @@ function registerGameEvents(io) {
           by: playerId,
           canPlay,
         });
-
-        // send the actual drawn card only to the player who drew it
-        if (player.socketId) {
-          io.to(player.socketId).emit("card_drawn_private", { drawnCard });
-        }
+        startTurnTimer(io, roomCode, db, saveGameState, broadcastGameUpdate);
       } catch (err) {
+        startTurnTimer(io, roomCode, db, saveGameState, broadcastGameUpdate);
         socket.emit("error", { message: err.message });
       }
     });
@@ -288,6 +303,7 @@ function registerGameEvents(io) {
     // ── play_again ───────────────────────────────────────────────────────────
     socket.on("play_again", async ({ roomCode, hostId }) => {
       try {
+        clearTurnTimer(roomCode);
         const state = await roomManager.playAgain(roomCode, hostId);
         io.to(roomCode).emit("room_update", state);
         io.to(roomCode).emit("back_to_lobby");
@@ -320,7 +336,26 @@ function registerGameEvents(io) {
             );
             if (playerInState) {
               playerInState.socketId = socket.id;
+            }
+            if (gameState.disconnectedSkips) {
+              delete gameState.disconnectedSkips[playerId];
+            }
+            await saveGameState(result.room.room_id, gameState);
+            const currentPlayer =
+              gameState.players[gameState.currentPlayerIndex];
+            if (currentPlayer?.id === playerId) {
+              stampTurnTimer(gameState);
               await saveGameState(result.room.room_id, gameState);
+              // Restart with a fresh 30s window
+              startTurnTimer(
+                io,
+                roomCode,
+                db,
+                saveGameState,
+                broadcastGameUpdate,
+              );
+              // Also broadcast the updated turnTimer so clients reset their UI
+              broadcastGameUpdate(io, roomCode, gameState);
             }
           }
 
@@ -340,6 +375,7 @@ function registerGameEvents(io) {
 
     // ── pass_turn ────────────────────────────────────────────────────────────
     socket.on("pass_turn", async ({ roomCode, playerId }) => {
+      clearTurnTimer(roomCode);
       try {
         const roomResult = await db.query(
           `SELECT * FROM rooms WHERE room_code = $1`,
@@ -358,13 +394,17 @@ function registerGameEvents(io) {
           (gameState.currentPlayerIndex + gameState.direction + playercount) %
           playercount;
 
+        stampTurnTimer(gameState);
+
         await saveGameState(room.room_id, gameState);
 
         broadcastGameUpdate(io, roomCode, gameState, {
           event: "turn_passed",
           by: playerId,
         });
+        startTurnTimer(io, roomCode, db, saveGameState, broadcastGameUpdate);
       } catch (err) {
+        startTurnTimer(io, roomCode, db, saveGameState, broadcastGameUpdate);
         socket.emit("error", { message: err.message });
       }
     });

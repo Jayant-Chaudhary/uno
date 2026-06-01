@@ -32,6 +32,11 @@ exports.joinRoom = async (req, res) => {
           .json({ error: "Name must be 32 characters or less." });
       }
     }
+    if (userId && guestName) {
+      return res.status(400).json({
+        error: "Authenticated users cannot provide a guest name.",
+      });
+    }
 
     const result = await roomManager.joinRoom(
       roomCode,
@@ -58,8 +63,7 @@ exports.getGameState = async (req, res) => {
     const { roomCode } = req.params;
 
     const userId = req.user?.user_id || req.user?.userId || null;
-    const reconnectToken =
-      req.query.reconnectToken || req.cookies?.reconnectToken || null;
+    const reconnectToken = req.reconnectToken || null;
 
     if (!userId && !reconnectToken) {
       return res.status(400).json({ error: "No identity provided" });
@@ -105,7 +109,7 @@ exports.getGameState = async (req, res) => {
 exports.leavePlayer = async (req, res) => {
   try {
     const userId = req.user?.userId || null;
-    const reconnectToken = req.query.reconnectToken || null;
+    const reconnectToken = req.reconnectToken || null;
 
     if (!userId && !reconnectToken) {
       return res.status(400).json({ error: "No identity provided" });

@@ -18,7 +18,6 @@ export function useSocket({
   onReconnected,
   onRoomDeleted,
   onTokenExpired,
-  onCardDrawnPrivate,   // ← was in handlersRef but missing from the signature
 } = {}) {
   const handlersRef = useRef({});
 
@@ -37,7 +36,6 @@ export function useSocket({
       onReconnected,
       onRoomDeleted,
       onTokenExpired,
-      onCardDrawnPrivate,  // ← was missing here too
     };
   });
 

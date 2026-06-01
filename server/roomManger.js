@@ -476,10 +476,9 @@ async function disconnectPlayer(roomCode, socketId) {
         SELECT COUNT(*)::INT AS count
         FROM room_players
         WHERE room_id = $1
-        AND socket_id = $2 
           AND status = 'active'
       `,
-    [room.room_id, socketId],
+    [room.room_id],
   );
   if (playerResult.rows.length === 0) return false;
 

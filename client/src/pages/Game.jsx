@@ -85,6 +85,7 @@ export default function Game() {
     actionHandler,
     actionDisabled,
     hasPlayableCard,
+    secondsLeft,
   } = useGameLogic(roomCode);
 
   // ── Loading spinner ────────────────────────────────────────────────────────
@@ -159,6 +160,7 @@ export default function Game() {
           isMyTurn={isMyTurn}
           currentPlayerName={currentPlayerName}
           onOpenSettings={() => setShowSettings(true)}
+          secondsLeft={secondsLeft}
         />
 
         {/* Middle stage */}
@@ -288,6 +290,7 @@ export default function Game() {
           currentPlayerName={currentPlayerName}
           latestGameEvent={latestGameEvent}
           onOpenSettings={() => setShowSettings(true)}
+          secondsLeft={secondsLeft}
           desktop
         />
 

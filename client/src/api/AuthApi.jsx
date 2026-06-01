@@ -2,7 +2,8 @@
 import axios from "axios";
 
 const API = axios.create({
-  baseURL: import.meta.env.VITE_API || "http://localhost:5000/api",
+  baseURL:
+    "https://stranger-toolkit-responsibilities-chat.trycloudflare.com/api",
   withCredentials: true,
 });
 
@@ -44,6 +45,7 @@ API.interceptors.response.use(
       }
 
       isRefreshing = true;
+      console.log("auth api is running");
 
       try {
         await API.post("/auth/refresh");
@@ -60,7 +62,6 @@ API.interceptors.response.use(
     }
 
     return Promise.reject(err);
-  }
+  },
 );
 export default API;
- 

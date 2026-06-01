@@ -67,6 +67,15 @@ export function useGameLogic(roomCode) {
       ? "It's your turn! Make a move."
       : `Waiting for ${currentPlayerName} to play...`);
   const isHost = roomInfo && roomInfo.host_id === myId;
+  const TURN_DURATION_S = 30;
+
+  const turnTimeLeft = (() => {
+    if (!gameState?.turnTimer?.startedAt) return TURN_DURATION_S;
+    const elapsed = Math.floor(
+      (Date.now() - gameState.turnTimer.startedAt) / 1000,
+    );
+    return Math.max(0, TURN_DURATION_S - elapsed);
+  })();
 
   // Pagination slices
   const handCards = me?.hand ?? [];
@@ -103,8 +112,17 @@ export function useGameLogic(roomCode) {
 
   // ── Socket callbacks ───────────────────────────────────────────────────────
   const handleGameUpdate = useCallback(({ gameState: gs }) => {
-    console.log(gs)
-    setGameState(gs);
+    console.log(gs);
+    setGameState((prev) => {
+      // Same turn, same timestamp → nothing meaningful changed, skip re-render
+      if (
+        prev?.turnTimer?.startedAt === gs?.turnTimer?.startedAt &&
+        prev?.currentPlayerIndex === gs?.currentPlayerIndex
+      ) {
+        return prev;
+      }
+      return gs;
+    });
     setGameStateVerified(true);
     setSelectedCard(null);
   }, []);
@@ -134,24 +152,6 @@ export function useGameLogic(roomCode) {
     }
   }, []);
 
-  // Server sends the drawn card privately to only the drawing player.
-  // We merge it into the hand without waiting for the next full game_update.
-  const handleCardDrawnPrivate = useCallback(
-    ({ drawnCard }) => {
-      if (!drawnCard) return;
-      setGameState((prev) => {
-        if (!prev) return prev;
-        return {
-          ...prev,
-          players: prev.players.map((p) =>
-            p.id === myId ? { ...p, hand: [...(p.hand ?? []), drawnCard] } : p,
-          ),
-        };
-      });
-    },
-    [myId],
-  );
-
   const {
     playCard,
     drawCard,
@@ -166,7 +166,6 @@ export function useGameLogic(roomCode) {
     onBackToLobby: handleBackToLobby,
     onError: handleError,
     onReconnected: handleReconnected,
-    onCardDrawnPrivate: handleCardDrawnPrivate,
   });
 
   // ── On mount: always fetch authoritative game state from server ────────────
@@ -232,6 +231,27 @@ export function useGameLogic(roomCode) {
       navigator.vibrate([200, 100, 200]);
     }
   }, [isMyTurn, vibrationEnabled]);
+
+  const [secondsLeft, setSecondsLeft] = useState(TURN_DURATION_S);
+
+  useEffect(() => {
+    if (!gameState?.turnTimer?.startedAt) {
+      setSecondsLeft(TURN_DURATION_S);
+      return;
+    }
+
+    // Compute immediately so there's no initial flicker
+    const compute = () => {
+      const elapsed = Math.floor(
+        (Date.now() - gameState.turnTimer.startedAt) / 1000,
+      );
+      setSecondsLeft(Math.max(0, TURN_DURATION_S - elapsed));
+    };
+
+    compute();
+    const id = setInterval(compute, 1000);
+    return () => clearInterval(id);
+  }, [gameState?.turnTimer?.startedAt]); // re-runs only when a new turn starts
 
   // ── Action handlers ────────────────────────────────────────────────────────
   const handleCardTap = (card) => {
@@ -317,17 +337,17 @@ export function useGameLogic(roomCode) {
       "bg-green-500 text-white shadow-[0_0_20px_rgba(34,197,94,0.4)] border-green-400 hover:scale-105 active:scale-95";
     actionHandler = handlePlayCard;
     actionDisabled = false;
+  } else if ((me?.hand?.length ?? 0) == 1) {
+    actionLabel = "UNO!";
+    actionBg =
+      "bg-red-500/20 text-red-400 border-red-500 hover:bg-red-500/30 shadow-[0_0_15px_rgba(239,68,68,0.3)] hover:scale-105 active:scale-95";
+    actionHandler = handleSayUno;
+    actionDisabled = false;
   } else if (opponentToCallOut) {
     actionLabel = "Call Out!";
     actionBg =
       "bg-orange-500/20 text-orange-400 border-orange-500 hover:bg-orange-500/30 shadow-[0_0_15px_rgba(249,115,22,0.3)] hover:scale-105 active:scale-95";
     actionHandler = () => handleCallOut(opponentToCallOut.id);
-    actionDisabled = false;
-  } else if ((me?.hand?.length ?? 0) <= 2) {
-    actionLabel = "UNO!";
-    actionBg =
-      "bg-red-500/20 text-red-400 border-red-500 hover:bg-red-500/30 shadow-[0_0_15px_rgba(239,68,68,0.3)] hover:scale-105 active:scale-95";
-    actionHandler = handleSayUno;
     actionDisabled = false;
   } else if (isMyTurn && !selectedCard && !hasPlayableCard()) {
     actionLabel = "Draw Card";
@@ -406,5 +426,7 @@ export function useGameLogic(roomCode) {
     actionBg,
     actionHandler,
     actionDisabled,
+    // turn timer
+    secondsLeft,
   };
 }

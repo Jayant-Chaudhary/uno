@@ -6,6 +6,6 @@ import tailwindcss from "@tailwindcss/vite";
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   server: {
-    allowedHosts: ["brochure-grammar-paintball-operational.trycloudflare.com"],
+    allowedHosts: true,
   },
 });
