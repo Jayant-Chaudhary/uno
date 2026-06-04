@@ -2,8 +2,7 @@
 import axios from "axios";
 
 const API = axios.create({
-  baseURL:
-    "https://stranger-toolkit-responsibilities-chat.trycloudflare.com/api",
+  baseURL: "http://localhost:5000/api",
   withCredentials: true,
 });
 
@@ -28,8 +27,12 @@ API.interceptors.response.use(
       return Promise.reject(err);
     }
 
-    // also always skip the refresh endpoint itself
-    if (original.url?.includes("/auth/refresh")) {
+    // also always skip the refresh, login, and signup endpoints itself
+    if (
+      original.url?.includes("/auth/refresh") ||
+      original.url?.includes("/auth/login") ||
+      original.url?.includes("/auth/signup")
+    ) {
       return Promise.reject(err);
     }
 

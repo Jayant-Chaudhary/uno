@@ -16,15 +16,16 @@ export default function NotesPanel({
   onNoteInputChange,
   onAddNote,
   onDeleteNote,
+  isMyTurn,
 }) {
   return (
     <div
-      className="rounded-2xl p-4 flex flex-col gap-3 h-full"
-      style={{
-        background: "rgba(255,255,255,0.03)",
-        border: "1px solid rgba(255,255,255,0.08)",
-        backdropFilter: "blur(12px)",
-      }}
+      className={`rounded-2xl p-4 flex flex-col gap-3 h-full transition-all duration-500 backdrop-blur-2xl border
+        ${
+          isMyTurn
+            ? "bg-green-950/20 border-green-500/50 shadow-[0_8px_32px_rgba(34,197,94,0.3)]"
+            : "bg-[#333]/20 border-purple-400/25 shadow-[0_8px_32px_rgba(230,0,255,0.25)]"
+        }`}
     >
       <p className="text-xs font-semibold uppercase tracking-wider text-white/30">
         Private notes

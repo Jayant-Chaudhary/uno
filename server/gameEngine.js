@@ -58,7 +58,7 @@ function generateDeck() {
       value: null,
     });
   }
-  console.log(deck.length); //debug
+  console.log(`[DECK] Generated a full new UNO deck of ${deck.length} cards.`);
   if (deck.length !== 108) {
     throw new Error("Deck generation failed");
   }
@@ -201,7 +201,7 @@ function playCard(state, playerId, cardId, chosenColor) {
   checkUno(state, playerId);
 
   if (checkWinner(state, playerId)) {
-    console.log(`${validPlayer.name} wins!`);
+    console.log(`[GAME_OVER] Player ${validPlayer.name} has won the match.`);
     state.gameOver = true;
     state.winner = playerId;
     return state;
@@ -361,7 +361,7 @@ function callOut(state, callerId, targetId) {
   if (state.pendingUno.playerId === targetId) {
     const timePassed = Date.now() - state.pendingUno.timestamp;
 
-    if (timePassed < 5000) {
+    if (timePassed < 25000) {
       drawCards(state, target, 2);
     } else {
       drawCards(state, caller, 2);

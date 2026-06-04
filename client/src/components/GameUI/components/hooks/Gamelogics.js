@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useContext } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useSocket } from "../../../../routes/useSocket";
+import { SettingsContext } from "../../../../context/SettingsContext";
 import API from "../../../../api/AuthApi";
 import toast from "react-hot-toast";
 import {
@@ -13,6 +14,19 @@ import {
 export function useGameLogic(roomCode) {
   const location = useLocation();
   const navigate = useNavigate();
+
+  const {
+    musicEnabled,
+    setMusicEnabled,
+    vibrationEnabled,
+    setVibrationEnabled,
+    playUno,
+    playTurn,
+    showSettings,
+    setShowSettings,
+  } = useContext(SettingsContext);
+
+  const [unoCallInfo, setUnoCallInfo] = useState(null);
 
   const currentUser = JSON.parse(localStorage.getItem("uno_user") || "null");
   const myId = currentUser?.userId || currentUser?.reconnectToken || null;
@@ -47,11 +61,118 @@ export function useGameLogic(roomCode) {
   const [noteInput, setNoteInput] = useState("");
 
   // UI toggles
-  const [showSettings, setShowSettings] = useState(false);
-  const [vibrationEnabled, setVibrationEnabled] = useState(true);
-  const [musicEnabled, setMusicEnabled] = useState(true);
   const [mobileTab, setMobileTab] = useState("table");
   const [isHandExpanded, setIsHandExpanded] = useState(false);
+  const [opponentAway, setOpponentAway] = useState(null);
+  const [unoClicked, setUnoClicked] = useState(false);
+
+  useEffect(() => {
+    setUnoClicked(false);
+  }, [gameState]);
+
+  const [recentNewCardIds, setRecentNewCardIds] = useState([]);
+  const [orderedHand, setOrderedHand] = useState([]);
+  const timeoutsRef = useRef([]);
+
+  useEffect(() => {
+    const currentMe = gameState?.players?.find((p) => p.id === myId);
+    if (!currentMe?.hand) {
+      setOrderedHand([]);
+      return;
+    }
+
+    const serverHand = currentMe.hand;
+
+    setOrderedHand((prevOrdered) => {
+      if (!prevOrdered || prevOrdered.length === 0) {
+        return serverHand;
+      }
+
+      // Filter previous ordered hand to only keep cards that still exist
+      const remaining = prevOrdered.filter((card) =>
+        serverHand.some((sc) => sc.id === card.id)
+      );
+
+      // Find new cards
+      const newCards = serverHand.filter(
+        (sc) => !prevOrdered.some((card) => card.id === sc.id)
+      );
+
+      if (newCards.length > 0) {
+        const newIds = newCards.map((c) => c.id);
+        // Add to recent new cards
+        setRecentNewCardIds((prev) => [...prev, ...newIds]);
+
+        // Set timeout to remove them after 5 seconds
+        const tid = setTimeout(() => {
+          setRecentNewCardIds((prev) =>
+            prev.filter((id) => !newIds.includes(id))
+          );
+        }, 5000);
+        timeoutsRef.current.push(tid);
+      }
+
+      return [...newCards, ...remaining];
+    });
+  }, [gameState, myId]);
+
+  // Clean up timeouts on unmount
+  useEffect(() => {
+    return () => {
+      timeoutsRef.current.forEach(clearTimeout);
+    };
+  }, []);
+
+  const prevPlayersRef = useRef([]);
+
+  useEffect(() => {
+    if (!gameState?.players) return;
+
+    const prevPlayers = prevPlayersRef.current;
+    const currentPlayers = gameState.players;
+
+    currentPlayers.forEach((player) => {
+      const prevPlayer = prevPlayers.find((p) => p.id === player.id);
+      if (!prevPlayer) return; // Player just joined, not a draw event
+
+      const prevCount = prevPlayer.cardCount ?? prevPlayer.hand?.length ?? 0;
+      const currentCount = player.cardCount ?? player.hand?.length ?? 0;
+
+      if (currentCount > prevCount) {
+        const diff = currentCount - prevCount;
+        const playerName = player.id === myId ? "You" : player.name;
+
+        // Determine the reason
+        let reason = "";
+        if (diff === 4) {
+          reason = " (+4 applied)";
+        } else if (diff === 2) {
+          // Check if top discard is draw2 or wild_draw4
+          const topCardType = gameState.discardPile?.[gameState.discardPile.length - 1]?.type;
+          if (topCardType === "draw2" || topCardType === "wild_draw4") {
+            reason = " (+2 applied)";
+          } else {
+            reason = " (Call Out penalty)";
+          }
+        }
+
+        // Show toast
+        const msg = `${playerName} drew ${diff} card${diff > 1 ? "s" : ""}${reason}!`;
+        if (player.id === myId) {
+          if (diff >= 2) {
+            toast.error(msg, { duration: 4000 });
+          } else {
+            toast.success(msg, { duration: 3000 });
+          }
+        } else {
+          toast(msg, { duration: 3000 });
+        }
+      }
+    });
+
+    // Update ref
+    prevPlayersRef.current = gameState.players;
+  }, [gameState, myId]);
 
   // ── Derived values ─────────────────────────────────────────────────────────
   const me = gameState?.players?.find((p) => p.id === myId);
@@ -78,7 +199,7 @@ export function useGameLogic(roomCode) {
   })();
 
   // Pagination slices
-  const handCards = me?.hand ?? [];
+  const handCards = orderedHand;
   const handPages = Math.ceil(handCards.length / HAND_PER_PAGE);
   const oppPages = Math.ceil(opponents.length / OPP_PER_PAGE);
   const visibleHand = handCards.slice(
@@ -109,6 +230,30 @@ export function useGameLogic(roomCode) {
     () => handCards.some((card) => isValidPlay(card)),
     [handCards, isValidPlay],
   );
+
+  const handleOpponentDisconnected = useCallback(
+    ({ disconnectedId, disconnectedName }) => {
+      setOpponentAway({ disconnectedId, disconnectedName });
+    },
+    [],
+  );
+
+  const handleOpponentReconnected = useCallback(() => {
+    setOpponentAway(null);
+  }, []);
+
+  const handleLeave = async () => {
+    try {
+      const reconnectToken = currentUser?.reconnectToken || null;
+      await API.post(`/rooms/${roomCode}/leave`, {
+        userId: currentUser?.userId || null,
+        reconnectToken,
+      });
+    } catch (err) {
+      // ignore — navigate away regardless
+    }
+    navigate("/");
+  };
 
   // ── Socket callbacks ───────────────────────────────────────────────────────
   const handleGameUpdate = useCallback(({ gameState: gs }) => {
@@ -152,6 +297,13 @@ export function useGameLogic(roomCode) {
     }
   }, []);
 
+  const handleUnoCalled = useCallback(({ playerId }) => {
+    const playerObj = gameState?.players?.find((p) => p.id === playerId);
+    const callerName = playerObj?.name || "Someone";
+    setUnoCallInfo({ playerName: callerName });
+    playUno();
+  }, [gameState, playUno]);
+
   const {
     playCard,
     drawCard,
@@ -166,6 +318,9 @@ export function useGameLogic(roomCode) {
     onBackToLobby: handleBackToLobby,
     onError: handleError,
     onReconnected: handleReconnected,
+    onOpponentDisconnected: handleOpponentDisconnected,
+    onOpponentReconnected: handleOpponentReconnected,
+    onUnoCalled: handleUnoCalled,
   });
 
   // ── On mount: always fetch authoritative game state from server ────────────
@@ -225,12 +380,12 @@ export function useGameLogic(roomCode) {
     localStorage.setItem(NOTES_KEY(roomCode), JSON.stringify(notes));
   }, [notes, roomCode]);
 
-  // Haptic feedback on turn change
+  // Haptic and Sound feedback on turn change
   useEffect(() => {
-    if (isMyTurn && vibrationEnabled && "vibrate" in navigator) {
-      navigator.vibrate([200, 100, 200]);
+    if (isMyTurn) {
+      playTurn();
     }
-  }, [isMyTurn, vibrationEnabled]);
+  }, [isMyTurn, playTurn]);
 
   const [secondsLeft, setSecondsLeft] = useState(TURN_DURATION_S);
 
@@ -295,7 +450,15 @@ export function useGameLogic(roomCode) {
     if (isMyTurn) passTurn(roomCode, myId);
   };
   const handleSayUno = () => sayUno(roomCode, myId);
+  const handleSayUnoWrapped = () => {
+    setUnoClicked(true);
+    handleSayUno();
+  };
   const handleCallOut = (targetId) => callOut(roomCode, myId, targetId);
+  const handleCallOutWrapped = (targetId) => {
+    setUnoClicked(true);
+    handleCallOut(targetId);
+  };
   const handlePlayAgain = () => playAgain(roomCode, myId);
 
   const handlePeek = (playerId) => {
@@ -324,42 +487,56 @@ export function useGameLogic(roomCode) {
     setNotes((prev) => prev.filter((_, i) => i !== index));
 
   // ── Master action button state machine ─────────────────────────────────────
+  const myHandSize = me?.hand?.length ?? 0;
   const opponentToCallOut = opponents.find((o) => o.cardCount === 1);
+  const showUnoAction = myHandSize === 1 || !!opponentToCallOut;
 
-  let actionLabel = "Call Out";
-  let actionBg = "bg-white/5 text-white/20 border-white/10 cursor-not-allowed";
-  let actionHandler = () => {};
-  let actionDisabled = true;
+  // 1. Normal Game Action Button
+  let normalActionLabel = "Play Card";
+  let normalActionBg = "bg-white/5 text-white/20 border-white/10 cursor-not-allowed";
+  let normalActionHandler = () => {};
+  let normalActionDisabled = true;
 
   if (isMyTurn && selectedCard && isValidPlay(selectedCard)) {
-    actionLabel = "Play Card";
-    actionBg =
+    normalActionLabel = "Play Card";
+    normalActionBg =
       "bg-green-500 text-white shadow-[0_0_20px_rgba(34,197,94,0.4)] border-green-400 hover:scale-105 active:scale-95";
-    actionHandler = handlePlayCard;
-    actionDisabled = false;
-  } else if ((me?.hand?.length ?? 0) == 1) {
-    actionLabel = "UNO!";
-    actionBg =
-      "bg-red-500/20 text-red-400 border-red-500 hover:bg-red-500/30 shadow-[0_0_15px_rgba(239,68,68,0.3)] hover:scale-105 active:scale-95";
-    actionHandler = handleSayUno;
-    actionDisabled = false;
-  } else if (opponentToCallOut) {
-    actionLabel = "Call Out!";
-    actionBg =
-      "bg-orange-500/20 text-orange-400 border-orange-500 hover:bg-orange-500/30 shadow-[0_0_15px_rgba(249,115,22,0.3)] hover:scale-105 active:scale-95";
-    actionHandler = () => handleCallOut(opponentToCallOut.id);
-    actionDisabled = false;
-  } else if (isMyTurn && !selectedCard && !hasPlayableCard()) {
-    actionLabel = "Draw Card";
-    actionBg =
-      "bg-blue-500/20 text-blue-300 border-blue-500/50 hover:bg-blue-500/30 hover:scale-105 active:scale-95";
-    actionHandler = handleDrawCard;
-    actionDisabled = false;
+    normalActionHandler = handlePlayCard;
+    normalActionDisabled = false;
   } else if (isMyTurn && !selectedCard && hasPlayableCard()) {
-    actionLabel = "Pick a Card";
-    actionBg = "bg-white/5 text-white/30 border-white/10 cursor-not-allowed";
-    actionHandler = () => toast("Select a highlighted card from your hand");
-    actionDisabled = true;
+    normalActionLabel = "Pass Turn";
+    normalActionBg =
+      "bg-purple-600/30 text-purple-200 border-purple-400/30 hover:bg-purple-600/50 shadow-[0_0_20px_rgba(168,85,247,0.2)] hover:scale-105 active:scale-95";
+    normalActionHandler = handlePassTurn;
+    normalActionDisabled = false;
+  } else if (isMyTurn && !selectedCard && !hasPlayableCard()) {
+    normalActionLabel = "Draw Card";
+    normalActionBg =
+      "bg-blue-500/20 text-blue-300 border-blue-500/50 hover:bg-blue-500/30 hover:scale-105 active:scale-95";
+    normalActionHandler = handleDrawCard;
+    normalActionDisabled = false;
+  }
+
+  // 2. UNO / Callout Action Button
+  let unoActionLabel = "Call Out";
+  let unoActionBg = "bg-white/5 text-white/20 border-white/10 cursor-not-allowed";
+  let unoActionHandler = () => {};
+  let unoActionDisabled = true;
+
+  if (myHandSize === 1) {
+    unoActionLabel = "UNO!";
+    unoActionDisabled = gameState.pendingUno?.playerId !== myId;
+    unoActionBg = (unoActionDisabled || unoClicked)
+      ? "bg-white/5 text-white/20 border-white/10 cursor-not-allowed"
+      : "bg-red-500/20 text-red-400 border-red-500 hover:bg-red-500/30 shadow-[0_0_15px_rgba(239,68,68,0.3)] hover:scale-105 active:scale-95";
+    unoActionHandler = handleSayUnoWrapped;
+  } else if (opponentToCallOut) {
+    unoActionLabel = "Call Out!";
+    unoActionDisabled = gameState.pendingUno?.playerId !== opponentToCallOut.id;
+    unoActionBg = (unoActionDisabled || unoClicked)
+      ? "bg-white/5 text-white/20 border-white/10 cursor-not-allowed"
+      : "bg-orange-500/20 text-orange-400 border-orange-500 hover:bg-orange-500/30 shadow-[0_0_15px_rgba(249,115,22,0.3)] hover:scale-105 active:scale-95";
+    unoActionHandler = () => handleCallOutWrapped(opponentToCallOut.id);
   }
 
   // ── Return everything the UI needs ─────────────────────────────────────────
@@ -383,6 +560,8 @@ export function useGameLogic(roomCode) {
     musicEnabled,
     setMusicEnabled,
     mobileTab,
+    unoCallInfo,
+    setUnoCallInfo,
     setMobileTab,
     isHandExpanded,
     setIsHandExpanded,
@@ -422,11 +601,20 @@ export function useGameLogic(roomCode) {
     handleAddNote,
     handleDeleteNote,
     // action button state machine output
-    actionLabel,
-    actionBg,
-    actionHandler,
-    actionDisabled,
+    normalActionLabel,
+    normalActionBg,
+    normalActionHandler,
+    normalActionDisabled,
+    unoActionLabel,
+    unoActionBg,
+    unoActionHandler,
+    unoActionDisabled: unoActionDisabled || unoClicked,
+    showUnoAction,
+    orderedHand,
+    recentNewCardIds,
     // turn timer
     secondsLeft,
+    opponentAway,
+    handleLeave,
   };
 }

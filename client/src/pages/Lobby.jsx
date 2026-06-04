@@ -219,10 +219,10 @@ const Lobby = () => {
     <div
       className="flex items-center justify-between px-5 py-4 rounded-2xl"
       style={{
-        background: "rgba(255,255,255,0.04)",
+        background: "rgba(51, 51, 51, 0.2)",
         border: "1px solid rgba(200,150,255,0.2)",
-        backdropFilter: "blur(12px)",
-        boxShadow: "0 0 40px rgba(150,80,255,0.10)",
+        backdropFilter: "blur(24px)",
+        boxShadow: "0 8px 32px rgba(230,0,255,0.25)",
       }}
     >
       <div>
@@ -292,9 +292,10 @@ const Lobby = () => {
     <div
       className="rounded-2xl p-4 md:p-5"
       style={{
-        background: "rgba(255,255,255,0.03)",
-        border: "1px solid rgba(255,255,255,0.08)",
-        backdropFilter: "blur(12px)",
+        background: "rgba(51, 51, 51, 0.2)",
+        border: "1px solid rgba(200,150,255,0.2)",
+        backdropFilter: "blur(24px)",
+        boxShadow: "0 8px 32px rgba(230,0,255,0.25)",
       }}
     >
       <div className="flex items-center justify-between mb-4">
@@ -410,9 +411,10 @@ const Lobby = () => {
     <div
       className="rounded-2xl p-4 md:p-5"
       style={{
-        background: "rgba(255,255,255,0.03)",
-        border: "1px solid rgba(255,255,255,0.08)",
-        backdropFilter: "blur(12px)",
+        background: "rgba(51, 51, 51, 0.2)",
+        border: "1px solid rgba(200,150,255,0.2)",
+        backdropFilter: "blur(24px)",
+        boxShadow: "0 8px 32px rgba(230,0,255,0.25)",
       }}
     >
       <p
@@ -444,9 +446,10 @@ const Lobby = () => {
     <div
       className="rounded-2xl p-4 text-center flex flex-col items-center justify-center gap-2"
       style={{
-        background: "rgba(255,255,255,0.03)",
-        border: "1px solid rgba(255,255,255,0.08)",
-        backdropFilter: "blur(12px)",
+        background: "rgba(51, 51, 51, 0.2)",
+        border: "1px solid rgba(200,150,255,0.2)",
+        backdropFilter: "blur(24px)",
+        boxShadow: "0 8px 32px rgba(230,0,255,0.25)",
       }}
     >
       <div className="flex items-center gap-1.5">

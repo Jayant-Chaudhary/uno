@@ -11,4 +11,5 @@ router.post("/create", authmiddleware, roomController.createRoom);
 router.post("/join", softAuth, roomController.joinRoom);
 router.get("/:roomCode", roomController.getRoomCode);
 router.delete("/:roomCode/leave", softAuth, roomController.leavePlayer);
+router.patch("/:roomCode/profile", softAuth, roomController.updateRoomPlayerProfile);
 module.exports = router;

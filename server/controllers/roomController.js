@@ -108,7 +108,7 @@ exports.getGameState = async (req, res) => {
 
 exports.leavePlayer = async (req, res) => {
   try {
-    const userId = req.user?.userId || null;
+    const userId = req.user?.userId || req.user?.user_id || null;
     const reconnectToken = req.reconnectToken || null;
 
     if (!userId && !reconnectToken) {
@@ -130,6 +130,50 @@ exports.leavePlayer = async (req, res) => {
 
     io.to(req.params.roomCode).emit("room_update", state);
     res.json(state);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+};
+
+exports.updateRoomPlayerProfile = async (req, res) => {
+  try {
+    const { roomCode } = req.params;
+    const { displayName, avatarEmoji } = req.body;
+    const userId = req.user?.userId || req.user?.user_id || null;
+    const reconnectToken = req.reconnectToken || null;
+
+    if (!userId && !reconnectToken) {
+      return res.status(400).json({ error: "No identity provided" });
+    }
+
+    let updatedName = displayName ? displayName.trim() : null;
+
+    if (userId) {
+      if (updatedName) {
+        await db.query(`UPDATE users SET username = $1 WHERE user_id = $2`, [updatedName, userId]);
+      }
+      if (avatarEmoji) {
+        await db.query(`UPDATE users SET avatar_emoji = $1 WHERE user_id = $2`, [avatarEmoji, userId]);
+      }
+    }
+
+    if (userId) {
+      await db.query(
+        `UPDATE room_players SET avatar_emoji = $1 WHERE room_id = (SELECT room_id FROM rooms WHERE room_code = $2) AND user_id = $3`,
+        [avatarEmoji || null, roomCode, userId]
+      );
+    } else {
+      await db.query(
+        `UPDATE room_players SET guest_name = $1, avatar_emoji = $2 WHERE room_id = (SELECT room_id FROM rooms WHERE room_code = $3) AND reconnect_token = $4`,
+        [updatedName, avatarEmoji || null, roomCode, reconnectToken]
+      );
+    }
+
+    const state = await roomManager.getRoomState(roomCode);
+    const io = req.app.get("io");
+    io.to(roomCode).emit("room_update", state);
+
+    res.json({ success: true, ...state });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }

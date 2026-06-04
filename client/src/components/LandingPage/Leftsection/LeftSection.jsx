@@ -6,16 +6,11 @@ const LeftSection = () => {
   return (
     <div
       className="
-      relative
-      w-3/5 
-      lg: w-1/2
-      h-screen
-      z-10
-      flex
-      items-center
-      justify-center
-      overflow-hidden
-    "
+        relative z-10 flex items-center justify-center
+        w-full h-[35vh] sm:h-[40vh]
+        lg:w-1/2 lg:h-full
+        overflow-hidden
+      "
     >
       <div className="relative flex items-center justify-center">
         {/* Glow */}

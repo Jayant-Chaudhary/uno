@@ -1,3 +1,4 @@
+import { useState, useEffect } from "react";
 import { useParams } from "react-router-dom";
 
 // Hook
@@ -10,7 +11,9 @@ import UnoCard from "../components/GameUI/cardGenerator";
 // Overlays
 import WildColorPicker from "../components/GameUI/components/WildColorPicker";
 import GameOverOverlay from "../components/GameUI/components/GameOverOverlay";
-import SettingsModal from "../components/GameUI/components/GameOverOverlay";
+import SettingsModal from "../components/GameUI/components/SettingsModel";
+import { OpponentAwayOverlay } from "../components/GameUI/components/OpponentAwayOverlay";
+import UnoOverlay from "../components/GameUI/components/UnoOverlay";
 
 // Layout pieces
 import TopBar from "../components/GameUI/components/TopBar";
@@ -18,6 +21,7 @@ import OpponentGrid from "../components/GameUI/components/OpponentGrid";
 import DiscardSection from "../components/GameUI/components/DiscardSection";
 import HandSection from "../components/GameUI/components/HandsSection";
 import NotesPanel from "../components/GameUI/components/NotesPannel";
+
 import ActionButton from "../components/GameUI/components/ActionButton";
 
 // ─────────────────────────────────────────────────────────────────────────────import { useParams } from "react-router-dom";
@@ -66,6 +70,7 @@ export default function Game() {
     handPages,
     oppPages,
     peek,
+    gameStateVerified,
     // functions
     isValidPlay,
     handleCardTap,
@@ -79,14 +84,40 @@ export default function Game() {
     handlePeek,
     handleAddNote,
     handleDeleteNote,
+
     // action button
-    actionLabel,
-    actionBg,
-    actionHandler,
-    actionDisabled,
+    normalActionLabel,
+    normalActionBg,
+    normalActionHandler,
+    normalActionDisabled,
+    unoActionLabel,
+    unoActionBg,
+    unoActionHandler,
+    unoActionDisabled,
+    showUnoAction,
     hasPlayableCard,
     secondsLeft,
+    opponentAway,
+    handleLeave,
+    unoCallInfo,
+    setUnoCallInfo,
+    orderedHand,
+    recentNewCardIds,
   } = useGameLogic(roomCode);
+
+  const [showInstructions, setShowInstructions] = useState(() => {
+    return localStorage.getItem("uno_instructions_seen") !== "true";
+  });
+
+  useEffect(() => {
+    if (localStorage.getItem("uno_instructions_seen") !== "true") {
+      localStorage.setItem("uno_instructions_seen", "true");
+    }
+  }, []);
+
+  const handleCloseInstructions = () => {
+    setShowInstructions(false);
+  };
 
   // ── Loading spinner ────────────────────────────────────────────────────────
   if (!gameState && !gameStateVerified) {
@@ -132,10 +163,19 @@ export default function Game() {
           musicEnabled={musicEnabled}
           onVibrationChange={setVibrationEnabled}
           onMusicChange={setMusicEnabled}
-          onLeave={() => {
-            /* TODO: leave-match logic */
-          }}
+          onLeave={handleLeave}
           onClose={() => setShowSettings(false)}
+          onShowInstructions={() => {
+            setShowInstructions(true);
+            setShowSettings(false);
+          }}
+        />
+      )}
+
+      {unoCallInfo && (
+        <UnoOverlay
+          playerName={unoCallInfo.playerName}
+          onClose={() => setUnoCallInfo(null)}
         />
       )}
 
@@ -146,6 +186,36 @@ export default function Game() {
           isHost={isHost}
           onPlayAgain={handlePlayAgain}
         />
+      )}
+
+
+      {showInstructions && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+          <div className="bg-[#120022] border border-white/20 rounded-3xl p-6 w-full max-w-sm flex flex-col gap-4 shadow-[0_8px_32px_rgba(168,85,247,0.4)] relative animate-[scaleUp_0.3s_cubic-bezier(0.175,0.885,0.32,1.275)]">
+            <button
+              onClick={handleCloseInstructions}
+              className="absolute top-4 right-4 text-white/40 hover:text-white text-lg font-bold transition-colors cursor-pointer"
+            >
+              ✕
+            </button>
+            <h2 className="text-lg font-black text-white uppercase tracking-wider text-center" style={{ fontFamily: "'Syne', sans-serif" }}>
+              How to Play Uno
+            </h2>
+            <div className="flex flex-col gap-2.5 text-xs text-white/70 leading-relaxed">
+              <p>🎯 <strong>Objective</strong>: Be the first to empty your hand of cards.</p>
+              <p>🃏 <strong>Matching</strong>: Play a card matching the active color, number, or type.</p>
+              <p>🎨 <strong>Wild Cards</strong>: Wild and Wild Draw 4 cards can match any card, letting you pick a new active color.</p>
+              <p>📢 <strong>Say UNO</strong>: Click "UNO!" when you have exactly 1 card left, or get caught and draw 2 penalty cards!</p>
+              <p>⏰ <strong>Turn Timers</strong>: Play your card before the 30s timer runs out, or suffer a 1-card AFK penalty.</p>
+            </div>
+            <button
+              onClick={handleCloseInstructions}
+              className="w-full py-2.5 mt-2 rounded-xl bg-purple-600/50 hover:bg-purple-600/70 border border-purple-400/30 text-white font-semibold text-xs tracking-wide transition-all shadow-[0_0_15px_rgba(168,85,247,0.2)] cursor-pointer"
+            >
+              Let's Play!
+            </button>
+          </div>
+        </div>
       )}
 
       {/* ══════════════════════════════════════════════════════════════════
@@ -165,12 +235,11 @@ export default function Game() {
 
         {/* Middle stage */}
         <div
-          className={`flex-1 flex flex-col min-h-0 bg-black/30 backdrop-blur-xl
-            rounded-3xl p-3 border transition-colors duration-500
+          className={`flex-1 flex flex-col min-h-0 transition-all duration-500 backdrop-blur-2xl rounded-3xl p-3 border
             ${
               isMyTurn
-                ? "border-green-500/40 shadow-[0_0_30px_rgba(34,197,94,0.15)]"
-                : "border-white/10"
+                ? "bg-green-950/20 border-green-500/50 shadow-[0_8px_32px_rgba(34,197,94,0.3)]"
+                : "bg-[#333]/20 border-purple-400/25 shadow-[0_8px_32px_rgba(230,0,255,0.25)]"
             }`}
         >
           {/* Tab switcher */}
@@ -219,6 +288,9 @@ export default function Game() {
                 page={opponentPage}
                 totalPages={oppPages}
                 onPageChange={setOpponentPage}
+                isMyTurn={isMyTurn}
+                players={gameState?.players}
+                currentTurnId={gameState?.players?.[gameState.currentPlayerIndex]?.id}
               />
             )}
           </div>
@@ -226,12 +298,11 @@ export default function Game() {
 
         {/* Bottom: hand + action */}
         <div
-          className={`mt-3 rounded-t-3xl p-3 flex flex-col gap-3
-            transition-colors duration-500
+          className={`mt-3 rounded-t-3xl p-3 flex flex-col gap-3 transition-all duration-500 backdrop-blur-2xl border-t
             ${
               isMyTurn
-                ? "bg-green-950/40 border-t border-green-500/50"
-                : "bg-black/60 border-t border-white/10"
+                ? "bg-green-950/40 border-green-500/50 shadow-[0_-8px_32px_rgba(34,197,94,0.25)]"
+                : "bg-[#333]/30 border-purple-400/25 shadow-[0_-8px_32px_rgba(230,0,255,0.15)]"
             }`}
         >
           {/* Expand toggle */}
@@ -256,7 +327,7 @@ export default function Game() {
           </button>
 
           <HandSection
-            hand={me?.hand ?? []}
+            hand={orderedHand}
             isMyTurn={isMyTurn}
             selectedCard={selectedCard}
             onCardTap={handleCardTap}
@@ -265,16 +336,34 @@ export default function Game() {
             totalPages={handPages}
             onPageChange={setHandPage}
             isExpanded={isHandExpanded}
+            recentNewCardIds={recentNewCardIds}
           />
 
           {/* Action buttons row */}
           <div className="flex gap-2 h-14 mt-1">
-            <ActionButton
-              label={actionLabel}
-              bg={actionBg}
-              onClick={actionHandler}
-              disabled={actionDisabled}
-            />
+            {showUnoAction ? (
+              <>
+                <ActionButton
+                  label={normalActionLabel}
+                  bg={normalActionBg}
+                  onClick={normalActionHandler}
+                  disabled={normalActionDisabled}
+                />
+                <ActionButton
+                  label={unoActionLabel}
+                  bg={unoActionBg}
+                  onClick={unoActionHandler}
+                  disabled={unoActionDisabled}
+                />
+              </>
+            ) : (
+              <ActionButton
+                label={normalActionLabel}
+                bg={normalActionBg}
+                onClick={normalActionHandler}
+                disabled={normalActionDisabled}
+              />
+            )}
           </div>
         </div>
       </div>
@@ -308,8 +397,7 @@ export default function Game() {
               desktop
             />
             <div
-              className="flex-1 max-h-[40%] bg-black/30 backdrop-blur-xl
-              rounded-3xl overflow-hidden border border-white/10"
+              className="flex-1 max-h-[40%] rounded-3xl overflow-hidden flex flex-col"
             >
               <NotesPanel
                 notes={notes}
@@ -317,6 +405,7 @@ export default function Game() {
                 onNoteInputChange={setNoteInput}
                 onAddNote={handleAddNote}
                 onDeleteNote={handleDeleteNote}
+                isMyTurn={isMyTurn}
               />
             </div>
           </div>
@@ -329,13 +418,20 @@ export default function Game() {
             page={opponentPage}
             totalPages={oppPages}
             onPageChange={setOpponentPage}
+            isMyTurn={isMyTurn}
+            players={gameState?.players}
+            currentTurnId={gameState?.players?.[gameState.currentPlayerIndex]?.id}
             desktop
           />
 
           {/* Right column: messages placeholder */}
           <div
-            className="w-72 flex-shrink-0 bg-black/30 backdrop-blur-xl
-            rounded-3xl p-5 border border-white/10 flex flex-col"
+            className={`w-72 flex-shrink-0 rounded-3xl p-5 border flex flex-col transition-all duration-500 backdrop-blur-2xl
+              ${
+                isMyTurn
+                  ? "bg-green-950/20 border-green-500/50 shadow-[0_8px_32px_rgba(34,197,94,0.3)]"
+                  : "bg-[#333]/20 border-purple-400/25 shadow-[0_8px_32px_rgba(230,0,255,0.25)]"
+              }`}
           >
             <p
               className="text-xs font-bold text-white/40 uppercase
@@ -357,20 +453,47 @@ export default function Game() {
         {/* Bottom row: hand + master action */}
         <div className="flex gap-4 flex-shrink-0 h-40">
           <HandSection
-            hand={me?.hand ?? []}
+            hand={orderedHand}
             isMyTurn={isMyTurn}
             selectedCard={selectedCard}
             onCardTap={handleCardTap}
             isValidPlay={isValidPlay}
             desktop
+            recentNewCardIds={recentNewCardIds}
           />
-          <ActionButton
-            label={actionLabel}
-            bg={actionBg}
-            onClick={actionHandler}
-            disabled={actionDisabled}
-            desktop
-          />
+          {showUnoAction ? (
+            <div
+              className="w-72 flex-shrink-0 flex flex-col gap-3 p-4
+                bg-black/40 backdrop-blur-xl rounded-3xl border border-white/10"
+            >
+              <button
+                onClick={normalActionHandler}
+                disabled={normalActionDisabled}
+                className={`flex-1 w-full rounded-2xl font-black text-xl uppercase
+                  tracking-widest transition-all duration-200 border-2 ${normalActionBg}`}
+                style={{ fontFamily: "'Syne', sans-serif" }}
+              >
+                {normalActionLabel}
+              </button>
+              <button
+                onClick={unoActionHandler}
+                disabled={unoActionDisabled}
+                className={`flex-1 w-full rounded-2xl font-black text-xl uppercase
+                  tracking-widest transition-all duration-200 border-2 ${unoActionBg}`}
+                style={{ fontFamily: "'Syne', sans-serif" }}
+              >
+                {unoActionLabel}
+              </button>
+            </div>
+          ) : (
+            <ActionButton
+              label={normalActionLabel}
+              bg={normalActionBg}
+              onClick={normalActionHandler}
+              disabled={normalActionDisabled}
+              desktop
+            />
+          )}
         </div>
       </div>
     </div>

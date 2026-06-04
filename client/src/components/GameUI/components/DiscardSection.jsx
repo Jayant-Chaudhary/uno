@@ -21,8 +21,12 @@ export default function DiscardSection({
   if (desktop) {
     return (
       <div
-        className="bg-black/30 backdrop-blur-xl rounded-3xl p-5 border
-          border-white/10 flex flex-col items-center justify-center flex-1"
+        className={`rounded-3xl p-5 border flex flex-col items-center justify-center flex-1 transition-all duration-500 backdrop-blur-2xl
+          ${
+            isMyTurn
+              ? "bg-green-950/20 border-green-500/50 shadow-[0_8px_32px_rgba(34,197,94,0.3)]"
+              : "bg-[#333]/20 border-purple-400/25 shadow-[0_8px_32px_rgba(230,0,255,0.25)]"
+          }`}
       >
         <p className="text-xs font-bold text-white/40 uppercase tracking-widest mb-4">
           Current Card
@@ -51,7 +55,7 @@ export default function DiscardSection({
   return (
     <div className="flex flex-col items-center justify-center h-full gap-6">
       <p className="text-xs text-white/50 uppercase tracking-widest">
-        Discard Pile
+        Current Card
       </p>
 
       {/* Current colour dot */}

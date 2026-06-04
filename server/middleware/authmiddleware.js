@@ -5,8 +5,6 @@ const jwt = require("jsonwebtoken");
 const db = require("../db");
 module.exports = async function (req, res, next) {
   try {
-    console.log(req.cookies);
-    console.log(req.cookies.token);
     const token = req.cookies.access_token;
 
     if (!token) {

@@ -22,21 +22,16 @@ const Rightsection = () => {
     <div
       className="
         compact-ui
-
         relative
-
-        w-2/5
+        z-10
+        w-[90dvw]
+        min-h-[50dvh]
         lg:w-1/2
-
-        h-[100dvh]
-        min-h-[320px]
-
+        lg:h-[80dvh]
         overflow-hidden
-
         flex
         flex-col
         justify-center
-
         px-3
         sm:px-5
         lg:px-14
@@ -160,7 +155,7 @@ const Rightsection = () => {
               leading-relaxed
             "
           >
-            No UNO cards? No worries. Enjoy local multiplayer anytime.
+            Create Room, Share the Code  and let the fun begins
           </p>
         </div>
 
@@ -220,7 +215,7 @@ const Rightsection = () => {
               leading-relaxed
             "
           >
-            Play with friends even miles apart. Compete online in real time.
+            Play with friends even miles apart.Just need an Code.
           </p>
         </div>
       </div>

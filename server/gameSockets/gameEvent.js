@@ -10,7 +10,11 @@ const {
   callOut,
   isValidPlay,
 } = require("../gameEngine");
-const { startTurnTimer, clearTurnTimer } = require("./TurnTimer");
+const {
+  startTurnTimer,
+  clearTurnTimer,
+  resumeTurnTimer,
+} = require("./TurnTimer");
 
 async function saveGameState(roomId, gameState) {
   await db.query(
@@ -49,11 +53,12 @@ function broadcastGameUpdate(io, roomCode, gameState, extraData = {}) {
   });
 }
 
-function stampTurnTimer(gameState) {
+function stampTurnTimer(gameState, startedAt = Date.now()) {
   gameState.turnTimer = {
-    startedAt: Date.now(),
+    startedAt,
     durationMs: 30_000,
   };
+  return startedAt;
 }
 
 function registerGameEvents(io) {
@@ -61,10 +66,15 @@ function registerGameEvents(io) {
     // ← lowercase, everything inside
     console.log(`socket connected: ${socket.id}`);
 
-    socket.onAny((eventName, ...args) => {
-      console.log("EVENT RECEIVED:", eventName, JSON.stringify(args));
+    socket.onAny((eventName) => {
+      console.log(`[SOCKET] Event: ${eventName} from ${socket.id}`);
     });
-
+    // Log all outgoing emits from this socket
+    const originalEmit = socket.emit.bind(socket);
+    socket.emit = (event, ...args) => {
+      console.log(`[SOCKET] Emit: ${event} to ${socket.id}`);
+      return originalEmit(event, ...args);
+    };
     socket.intentionalLeave = false;
 
     // ── join_room ────────────────────────────────────────────────────────────
@@ -89,7 +99,7 @@ function registerGameEvents(io) {
           }
         }
         const socketsInRoom = await io.in(roomCode).allSockets();
-        console.log("sockets in room after join:", [...socketsInRoom]);
+
         io.to(roomCode).emit("room_update", { room, players });
         socket.emit("joined", { roomCode, room, players });
       } catch (err) {
@@ -119,7 +129,7 @@ function registerGameEvents(io) {
           hand: [],
           socketId: p.socket_id,
         }));
-        console.log(gamePlayers);
+
 
         let gameState = {
           players: gamePlayers,
@@ -138,7 +148,7 @@ function registerGameEvents(io) {
         };
 
         gameState = dealCard(gameState); // not async
-        stampTurnTimer(gameState);
+        const startedAt = stampTurnTimer(gameState);
 
         await db.query(
           `UPDATE rooms SET status = 'active', game_state = $1 WHERE room_id = $2`,
@@ -152,7 +162,7 @@ function registerGameEvents(io) {
             });
           }
         });
-        startTurnTimer(io, roomCode, db, saveGameState, broadcastGameUpdate);
+        startTurnTimer(io, roomCode, db, saveGameState, broadcastGameUpdate, startedAt);
       } catch (err) {
         socket.emit("error", { message: err.message });
       }
@@ -162,19 +172,25 @@ function registerGameEvents(io) {
     socket.on(
       "PlayCards",
       async ({ roomCode, playerId, cardId, chosenColor }) => {
+        const client = await db.connect();
+        let startedAt;
         try {
           clearTurnTimer(roomCode);
-          const roomResult = await db.query(
-            `SELECT * FROM rooms WHERE room_code = $1`,
+          await client.query("BEGIN");
+
+          const roomResult = await client.query(
+            `SELECT * FROM rooms WHERE room_code = $1 FOR UPDATE`,
             [roomCode],
           );
           if (roomResult.rows.length === 0) {
+            await client.query("ROLLBACK");
             return socket.emit("error", { message: "Room not found" });
           }
-          const room = roomResult.rows[0]; // ← .rows[0]
+          const room = roomResult.rows[0];
           let gameState = room.game_state;
           const currentPlayer = gameState.players[gameState.currentPlayerIndex];
           if (currentPlayer.id !== playerId) {
+            await client.query("ROLLBACK");
             return socket.emit("error", { message: "Not your turn" });
           }
 
@@ -184,8 +200,26 @@ function registerGameEvents(io) {
             cardId,
             chosenColor || null,
           );
-          stampTurnTimer(gameState);
-          await saveGameState(room.room_id, gameState);
+          if (gameState.disconnectedSkips)
+            delete gameState.disconnectedSkips[playerId];
+          if (!gameState.afkCounts) gameState.afkCounts = {};
+          gameState.afkCounts[playerId] = 0;
+          startedAt = stampTurnTimer(gameState);
+
+          await client.query(
+            `UPDATE rooms SET game_state = $1, last_activity = now() WHERE room_id = $2`,
+            [JSON.stringify(gameState), room.room_id],
+          );
+
+          if (gameState.gameOver) {
+            await client.query(
+              `UPDATE rooms SET status = 'finished' WHERE room_id = $1`,
+              [room.room_id],
+            );
+          }
+
+          await client.query("COMMIT");
+
           broadcastGameUpdate(io, roomCode, gameState, {
             event: "card_played",
             by: playerId,
@@ -199,33 +233,42 @@ function registerGameEvents(io) {
                 (p) => p.id === gameState.winner,
               )?.name,
             });
-            await db.query(
-              `UPDATE rooms SET status = 'finished' WHERE room_id = $1`,
-              [room.room_id],
-            );
           }
-          startTurnTimer(io, roomCode, db, saveGameState, broadcastGameUpdate);
+          startTurnTimer(io, roomCode, db, saveGameState, broadcastGameUpdate, startedAt);
         } catch (err) {
-          startTurnTimer(io, roomCode, db, saveGameState, broadcastGameUpdate);
+          try {
+            await client.query("ROLLBACK");
+          } catch (_) {}
+          startTurnTimer(io, roomCode, db, saveGameState, broadcastGameUpdate, startedAt);
           socket.emit("error", { message: err.message });
+        } finally {
+          client.release();
         }
       },
     );
 
     // ── draw_card ────────────────────────────────────────────────────────────
     socket.on("draw_card", async ({ roomCode, playerId }) => {
+      const client = await db.connect();
+      let startedAt;
       try {
         clearTurnTimer(roomCode);
+        await client.query("BEGIN");
 
-        const roomResult = await db.query(
-          `SELECT * FROM rooms WHERE room_code = $1`,
+        const roomResult = await client.query(
+          `SELECT * FROM rooms WHERE room_code = $1 FOR UPDATE`,
           [roomCode],
         );
+        if (roomResult.rows.length === 0) {
+          await client.query("ROLLBACK");
+          return socket.emit("error", { message: "Room not found" });
+        }
         const room = roomResult.rows[0];
         let gameState = room.game_state;
 
         const currentPlayer = gameState.players[gameState.currentPlayerIndex];
         if (currentPlayer.id !== playerId) {
+          await client.query("ROLLBACK");
           return socket.emit("error", { message: "Not your turn" });
         }
 
@@ -241,54 +284,93 @@ function registerGameEvents(io) {
             (gameState.currentPlayerIndex + gameState.direction + playercount) %
             playercount;
         }
-        stampTurnTimer(gameState);
+        if (gameState.disconnectedSkips)
+          delete gameState.disconnectedSkips[playerId];
+        if (!gameState.afkCounts) gameState.afkCounts = {};
+        gameState.afkCounts[playerId] = 0;
+        startedAt = stampTurnTimer(gameState);
 
-        await saveGameState(room.room_id, gameState);
+        await client.query(
+          `UPDATE rooms SET game_state = $1, last_activity = now() WHERE room_id = $2`,
+          [JSON.stringify(gameState), room.room_id],
+        );
+
+        await client.query("COMMIT");
+
         broadcastGameUpdate(io, roomCode, gameState, {
           event: "card_drawn",
           by: playerId,
           canPlay,
         });
-        startTurnTimer(io, roomCode, db, saveGameState, broadcastGameUpdate);
+        startTurnTimer(io, roomCode, db, saveGameState, broadcastGameUpdate, startedAt);
       } catch (err) {
-        startTurnTimer(io, roomCode, db, saveGameState, broadcastGameUpdate);
+        try {
+          await client.query("ROLLBACK");
+        } catch (_) {}
+        startTurnTimer(io, roomCode, db, saveGameState, broadcastGameUpdate, startedAt);
         socket.emit("error", { message: err.message });
+      } finally {
+        client.release();
       }
     });
 
     // ── say_uno ──────────────────────────────────────────────────────────────
     socket.on("SayUno", async ({ roomCode, playerId }) => {
-      // ← destructure
+      const client = await db.connect();
       try {
-        const roomResult = await db.query(
-          `SELECT * FROM rooms WHERE room_code = $1`,
+        await client.query("BEGIN");
+        const roomResult = await client.query(
+          `SELECT * FROM rooms WHERE room_code = $1 FOR UPDATE`,
           [roomCode],
         );
+        if (roomResult.rows.length === 0) {
+          await client.query("ROLLBACK");
+          return socket.emit("error", { message: "Room not found" });
+        }
         const room = roomResult.rows[0];
         let gameState = room.game_state;
 
         if (gameState.pendingUno?.playerId === playerId) {
           gameState.pendingUno = null;
-          await saveGameState(room.room_id, gameState);
+          await client.query(
+            `UPDATE rooms SET game_state = $1, last_activity = now() WHERE room_id = $2`,
+            [JSON.stringify(gameState), room.room_id],
+          );
         }
+        await client.query("COMMIT");
         io.to(roomCode).emit("uno_called", { playerId });
       } catch (err) {
+        try {
+          await client.query("ROLLBACK");
+        } catch (_) {}
         socket.emit("error", { message: err.message });
+      } finally {
+        client.release();
       }
     });
 
     // ── call_out ─────────────────────────────────────────────────────────────
     socket.on("CallOut", async ({ roomCode, callerId, targetId }) => {
+      const client = await db.connect();
       try {
-        const roomResult = await db.query(
-          `SELECT * FROM rooms WHERE room_code = $1`,
+        await client.query("BEGIN");
+        const roomResult = await client.query(
+          `SELECT * FROM rooms WHERE room_code = $1 FOR UPDATE`,
           [roomCode],
         );
+        if (roomResult.rows.length === 0) {
+          await client.query("ROLLBACK");
+          return socket.emit("error", { message: "Room not found" });
+        }
         const room = roomResult.rows[0];
         let gameState = room.game_state;
 
         gameState = callOut(gameState, callerId, targetId);
-        await saveGameState(room.room_id, gameState);
+        await client.query(
+          `UPDATE rooms SET game_state = $1, last_activity = now() WHERE room_id = $2`,
+          [JSON.stringify(gameState), room.room_id],
+        );
+        await client.query("COMMIT");
 
         broadcastGameUpdate(io, roomCode, gameState, {
           event: "callout",
@@ -296,7 +378,12 @@ function registerGameEvents(io) {
           targetId,
         });
       } catch (err) {
+        try {
+          await client.query("ROLLBACK");
+        } catch (_) {}
         socket.emit("error", { message: err.message });
+      } finally {
+        client.release();
       }
     });
 
@@ -336,26 +423,65 @@ function registerGameEvents(io) {
             );
             if (playerInState) {
               playerInState.socketId = socket.id;
+            } else {
+              console.warn(
+                `[RECONNECT] player ${playerId} not found in gameState`,
+              );
             }
-            if (gameState.disconnectedSkips) {
-              delete gameState.disconnectedSkips[playerId];
-            }
+
             await saveGameState(result.room.room_id, gameState);
+
             const currentPlayer =
               gameState.players[gameState.currentPlayerIndex];
-            if (currentPlayer?.id === playerId) {
-              stampTurnTimer(gameState);
-              await saveGameState(result.room.room_id, gameState);
-              // Restart with a fresh 30s window
-              startTurnTimer(
-                io,
-                roomCode,
-                db,
-                saveGameState,
-                broadcastGameUpdate,
-              );
-              // Also broadcast the updated turnTimer so clients reset their UI
+            const activePlayersCount = gameState.players.filter(
+              (p) => p.socketId !== null,
+            ).length;
+
+            // ── 2-player: notify everyone the opponent is back, resume timer ─────
+            if (activePlayersCount === 2) {
+              io.to(roomCode).emit("opponent_reconnected", {
+                reconnectedId: playerId,
+              });
+
+              if (currentPlayer?.id === playerId) {
+                // it was their turn when they disconnected — resume remaining time
+                const startedAt = gameState.turnTimer?.startedAt ?? Date.now();
+                resumeTurnTimer(
+                  io,
+                  roomCode,
+                  db,
+                  saveGameState,
+                  broadcastGameUpdate,
+                  startedAt,
+                );
+              } else if (activePlayersCount == 2) {
+                // it was the other player's turn — restart fresh for them
+                const startedAt = stampTurnTimer(gameState);
+                await saveGameState(result.room.room_id, gameState);
+                startTurnTimer(
+                  io,
+                  roomCode,
+                  db,
+                  saveGameState,
+                  broadcastGameUpdate,
+                  startedAt,
+                );
+              }
               broadcastGameUpdate(io, roomCode, gameState);
+            } else {
+              // 3 and more players
+              if (currentPlayer?.id === playerId) {
+                const startedAt = gameState.turnTimer?.startedAt ?? Date.now();
+                resumeTurnTimer(
+                  io,
+                  roomCode,
+                  db,
+                  saveGameState,
+                  broadcastGameUpdate,
+                  startedAt,
+                );
+                broadcastGameUpdate(io, roomCode, gameState);
+              }
             }
           }
 
@@ -375,18 +501,34 @@ function registerGameEvents(io) {
 
     // ── pass_turn ────────────────────────────────────────────────────────────
     socket.on("pass_turn", async ({ roomCode, playerId }) => {
-      clearTurnTimer(roomCode);
+      const client = await db.connect();
+      let startedAt;
       try {
-        const roomResult = await db.query(
-          `SELECT * FROM rooms WHERE room_code = $1`,
+        clearTurnTimer(roomCode);
+        await client.query("BEGIN");
+
+        const roomResult = await client.query(
+          `SELECT * FROM rooms WHERE room_code = $1 FOR UPDATE`,
           [roomCode],
         );
+        if (roomResult.rows.length === 0) {
+          await client.query("ROLLBACK");
+          return socket.emit("error", { message: "Room not found" });
+        }
         const room = roomResult.rows[0];
         let gameState = room.game_state;
 
         const currentPlayer = gameState.players[gameState.currentPlayerIndex];
         if (currentPlayer.id !== playerId) {
+          await client.query("ROLLBACK");
           return socket.emit("error", { message: "Not your turn" });
+        }
+
+        const playerObj = gameState.players.find((p) => p.id === playerId);
+        const hasPlayableCard = playerObj?.hand?.some((card) => isValidPlay(card, gameState));
+        if (!hasPlayableCard) {
+          await client.query("ROLLBACK");
+          return socket.emit("error", { message: "You must draw a card because you have no playable cards." });
         }
 
         const playercount = gameState.players.length;
@@ -394,18 +536,32 @@ function registerGameEvents(io) {
           (gameState.currentPlayerIndex + gameState.direction + playercount) %
           playercount;
 
-        stampTurnTimer(gameState);
+        if (gameState.disconnectedSkips)
+          delete gameState.disconnectedSkips[playerId];
+        if (!gameState.afkCounts) gameState.afkCounts = {};
+        gameState.afkCounts[playerId] = 0;
+        startedAt = stampTurnTimer(gameState);
 
-        await saveGameState(room.room_id, gameState);
+        await client.query(
+          `UPDATE rooms SET game_state = $1, last_activity = now() WHERE room_id = $2`,
+          [JSON.stringify(gameState), room.room_id],
+        );
+
+        await client.query("COMMIT");
 
         broadcastGameUpdate(io, roomCode, gameState, {
           event: "turn_passed",
           by: playerId,
         });
-        startTurnTimer(io, roomCode, db, saveGameState, broadcastGameUpdate);
+        startTurnTimer(io, roomCode, db, saveGameState, broadcastGameUpdate, startedAt);
       } catch (err) {
-        startTurnTimer(io, roomCode, db, saveGameState, broadcastGameUpdate);
+        try {
+          await client.query("ROLLBACK");
+        } catch (_) {}
+        startTurnTimer(io, roomCode, db, saveGameState, broadcastGameUpdate, startedAt);
         socket.emit("error", { message: err.message });
+      } finally {
+        client.release();
       }
     });
 
@@ -414,24 +570,67 @@ function registerGameEvents(io) {
       const DISCONNECT_GRACE_MS = 3000;
       if (socket.intentionalLeave) return;
       const rooms = [...socket.rooms].filter((r) => r !== socket.id);
+      console.log(`[SOCKET] Disconnecting: socket ${socket.id}`);
       for (const roomCode of rooms) {
         setTimeout(async () => {
+          console.log(`[SOCKET] Disconnect timer fired for socket ${socket.id} in room ${roomCode}`);
           try {
             const updated = await roomManager.disconnectPlayer(
               roomCode,
               socket.id,
             );
+
+
             if (updated === null) {
               io.to(roomCode).emit("room_deleted");
-            } else if (updated) {
-              io.to(roomCode).emit("player_disconnected", {
-                socketId: socket.id,
-              });
+              return;
+            }
+            if (!updated) return;
+
+            // ── fetch fresh room state ───────────────────────────────────────────
+            const roomResult = await db.query(
+              `SELECT * FROM rooms WHERE room_code = $1`,
+              [roomCode],
+            );
+            if (roomResult.rows.length === 0) return;
+            const room = roomResult.rows[0];
+
+            io.to(roomCode).emit("player_disconnected", {
+              socketId: socket.id,
+            });
+
+            if (room.status !== "active" || !room.game_state) return;
+
+            const gameState = room.game_state;
+            const disconnectedId = updated.user_id || updated.reconnect_token;
+
+            //null out socketId in gameState
+            const playerInState = gameState.players.find(
+              (p) => p.id === disconnectedId,
+            );
+            if (playerInState) {
+              playerInState.socketId = null;
+              await saveGameState(room.room_id, gameState);
+            }
+            // If it was their turn when they disconnected, ensure the turn timer continues running
+            const currentPlayer =
+              gameState.players[gameState.currentPlayerIndex];
+            if (currentPlayer?.id === disconnectedId) {
+              const startedAt = gameState.turnTimer?.startedAt ?? Date.now();
+              startTurnTimer(
+                io,
+                roomCode,
+                db,
+                saveGameState,
+                broadcastGameUpdate,
+                startedAt,
+              );
             }
           } catch (err) {
             console.error(
-              `disconnectPlayer error for room ${roomCode}:`,
+              `[DISCONNECT_TIMER] error for room ${roomCode}:`,
               err.message,
+              err.stack,
             );
           }
         }, DISCONNECT_GRACE_MS);

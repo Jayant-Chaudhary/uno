@@ -1,7 +1,7 @@
 import { useEffect, useRef, useCallback } from "react";
 import { io } from "socket.io-client";
 
-const SOCKET_URL = import.meta.env.VITE_API || "http://localhost:5000";
+const SOCKET_URL = (import.meta.env.VITE_API || "http://localhost:5000").replace(/\/api$/, "");
 
 let socketInstance = null;
 
@@ -18,6 +18,8 @@ export function useSocket({
   onReconnected,
   onRoomDeleted,
   onTokenExpired,
+  onOpponentDisconnected,
+  onOpponentReconnected,
 } = {}) {
   const handlersRef = useRef({});
 
@@ -36,6 +38,8 @@ export function useSocket({
       onReconnected,
       onRoomDeleted,
       onTokenExpired,
+      onOpponentDisconnected,
+      onOpponentReconnected,
     };
   });
 
@@ -49,7 +53,7 @@ export function useSocket({
       socketInstance.on("connect", () => {
         console.log("socket connected:", socketInstance.id);
       });
-      socketInstance.on("connect_error", (err) => { 
+      socketInstance.on("connect_error", (err) => {
         console.log("connect error:", err.message);
       });
       socketInstance.on("disconnect", (reason) => {
@@ -74,7 +78,6 @@ export function useSocket({
         } catch {
           window.location.href = "/auth";
         }
-
       });
     }
 
@@ -87,20 +90,21 @@ export function useSocket({
     };
 
     const handlers = {
-      room_update:         (d) => dispatch("onRoomUpdate", d),
-      joined:              (d) => dispatch("onRoomUpdate", d),
-      game_started:        (d) => dispatch("onGameStarted", d),
-      game_update:         (d) => dispatch("onGameUpdate", d),
-      game_over:           (d) => dispatch("onGameOver", d),
-      uno_called:          (d) => dispatch("onUnoCalled", d),
+      room_update: (d) => dispatch("onRoomUpdate", d),
+      joined: (d) => dispatch("onRoomUpdate", d),
+      game_started: (d) => dispatch("onGameStarted", d),
+      game_update: (d) => dispatch("onGameUpdate", d),
+      game_over: (d) => dispatch("onGameOver", d),
+      uno_called: (d) => dispatch("onUnoCalled", d),
       player_disconnected: (d) => dispatch("onPlayerDisconnected", d),
-      player_reconnected:  (d) => dispatch("onPlayerReconnected", d),
-      back_to_lobby:       (d) => dispatch("onBackToLobby", d),
-      error:               (d) => dispatch("onError", d),
-      reconnected:         (d) => dispatch("onReconnected", d),
-      room_deleted:        (d) => dispatch("onRoomDeleted", d),
-      card_drawn_private:  (d) => dispatch("onCardDrawnPrivate", d),
-
+      player_reconnected: (d) => dispatch("onPlayerReconnected", d),
+      back_to_lobby: (d) => dispatch("onBackToLobby", d),
+      error: (d) => dispatch("onError", d),
+      reconnected: (d) => dispatch("onReconnected", d),
+      room_deleted: (d) => dispatch("onRoomDeleted", d),
+      card_drawn_private: (d) => dispatch("onCardDrawnPrivate", d),
+      opponent_disconnected: (d) => dispatch("onOpponentDisconnected", d),
+      opponent_reconnected: (d) => dispatch("onOpponentReconnected", d),
     };
 
     Object.entries(handlers).forEach(([event, handler]) => {
@@ -125,7 +129,12 @@ export function useSocket({
   }, []);
 
   const playCard = useCallback((roomCode, playerId, cardId, chosenColor) => {
-    socketInstance?.emit("PlayCards", { roomCode, playerId, cardId, chosenColor });
+    socketInstance?.emit("PlayCards", {
+      roomCode,
+      playerId,
+      cardId,
+      chosenColor,
+    });
   }, []);
 
   const drawCard = useCallback((roomCode, playerId) => {
@@ -150,10 +159,14 @@ export function useSocket({
 
   const intentionalDiscontect = useCallback(() => {
     socketInstance?.emit("intentional_leave");
-  }, []);   // ← was missing dependency array
+  }, []); // ← was missing dependency array
 
   const reconnect = useCallback((roomCode, userId, reconnectToken) => {
-    socketInstance?.emit("reconnect_player", { roomCode, userId, reconnectToken });
+    socketInstance?.emit("reconnect_player", {
+      roomCode,
+      userId,
+      reconnectToken,
+    });
   }, []);
 
   const disconnect = useCallback(() => {

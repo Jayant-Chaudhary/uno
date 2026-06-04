@@ -6,6 +6,8 @@ import "./index.css";
 import { BrowserRouter } from "react-router-dom";
 import { preloadAssets } from "./utils/assets";
 
+import { SettingsProvider } from "./context/SettingsContext";
+
 async function startApp() {
   try {
     console.log("Loading assets...");
@@ -16,7 +18,9 @@ async function startApp() {
 
     ReactDOM.createRoot(document.getElementById("root")).render(
       <BrowserRouter>
-        <App />
+        <SettingsProvider>
+          <App />
+        </SettingsProvider>
       </BrowserRouter>,
     );
   } catch (error) {

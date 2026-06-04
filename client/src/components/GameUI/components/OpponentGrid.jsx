@@ -8,6 +8,9 @@ export default function OpponentGrid({
   totalPages,
   onPageChange,
   desktop = false,
+  isMyTurn,
+  players,
+  currentTurnId,
 }) {
   const OPP_PER_PAGE = desktop ? opponents.length : 6; // desktop shows all
   const visible = desktop
@@ -18,8 +21,12 @@ export default function OpponentGrid({
   if (desktop) {
     return (
       <div
-        className="flex-1 flex flex-col rounded-3xl p-5 border
-        bg-black/30 border-white/10 transition-colors duration-500"
+        className={`flex-1 flex flex-col rounded-3xl p-5 border transition-all duration-500 backdrop-blur-2xl
+          ${
+            isMyTurn
+              ? "bg-green-950/20 border-green-500/50 shadow-[0_8px_32px_rgba(34,197,94,0.3)]"
+              : "bg-[#333]/20 border-purple-400/25 shadow-[0_8px_32px_rgba(230,0,255,0.25)]"
+          }`}
       >
         <p
           className="text-xs font-bold text-white/40 uppercase tracking-widest
@@ -31,16 +38,21 @@ export default function OpponentGrid({
           className="flex-1 grid grid-cols-4 gap-4 auto-rows-max
           place-content-center"
         >
-          {visible.map((opp, i) => (
-            <OpponentCard
-              key={opp.id}
-              opp={opp}
-              index={i}
-              peek={peek}
-              onPeek={onPeek}
-              desktop
-            />
-          ))}
+          {visible.map((opp, i) => {
+            const turnNumber = players ? players.findIndex((p) => p.id === opp.id) + 1 : null;
+            return (
+              <OpponentCard
+                key={opp.id}
+                opp={opp}
+                index={i}
+                peek={peek}
+                onPeek={onPeek}
+                turnNumber={turnNumber}
+                isCurrentTurn={opp.id === currentTurnId}
+                desktop
+              />
+            );
+          })}
         </div>
       </div>
     );
@@ -50,15 +62,20 @@ export default function OpponentGrid({
   return (
     <div className="flex flex-col gap-3">
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-        {visible.map((opp, i) => (
-          <OpponentCard
-            key={opp.id}
-            opp={opp}
-            index={page * OPP_PER_PAGE + i}
-            peek={peek}
-            onPeek={onPeek}
-          />
-        ))}
+        {visible.map((opp, i) => {
+          const turnNumber = players ? players.findIndex((p) => p.id === opp.id) + 1 : null;
+          return (
+            <OpponentCard
+              key={opp.id}
+              opp={opp}
+              index={page * OPP_PER_PAGE + i}
+              peek={peek}
+              onPeek={onPeek}
+              turnNumber={turnNumber}
+              isCurrentTurn={opp.id === currentTurnId}
+            />
+          );
+        })}
       </div>
 
       {/* Pagination (mobile only; desktop shows all) */}

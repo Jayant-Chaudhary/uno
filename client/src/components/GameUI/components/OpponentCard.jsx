@@ -7,6 +7,8 @@ export default function OpponentCard({
   peek,
   onPeek,
   desktop = false,
+  turnNumber,
+  isCurrentTurn,
 }) {
   const isBeingPeeked = peek?.targetId === opp.id;
   const isLockedOut = peek && peek.targetId !== opp.id;
@@ -20,15 +22,34 @@ export default function OpponentCard({
     <button
       onClick={() => !isLockedOut && onPeek(opp.id)}
       disabled={isLockedOut}
-      className={`${padding} rounded-2xl flex flex-col items-center border
+      className={`relative ${padding} rounded-2xl flex flex-col items-center border
         transition-all duration-200
         ${
-          isBeingPeeked
+          isCurrentTurn
+            ? "border-red-500 shadow-[0_0_15px_rgba(239,68,68,0.5)] ring-2 ring-red-500/30 scale-105"
+            : isBeingPeeked
             ? "border-purple-500 bg-purple-500/20 scale-105"
-            : "border-white/10 bg-white/5 hover:bg-white/10"
+            : "border-purple-400/25 bg-[#333]/20 hover:bg-white/10 shadow-[0_8px_32px_rgba(230,0,255,0.15)]"
         }
         ${isLockedOut ? "opacity-40 cursor-not-allowed grayscale" : ""}`}
     >
+      {turnNumber !== null && (
+        <div
+          className="absolute top-2 left-2 w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-black shadow-[0_2px_8px_rgba(0,0,0,0.4)] border transition-all duration-300"
+          style={{
+            background: isCurrentTurn
+              ? "linear-gradient(135deg, #ef4444, #b91c1c)"
+              : "linear-gradient(135deg, #a855f7, #6b21a8)",
+            color: "white",
+            borderColor: "rgba(255,255,255,0.4)",
+            fontFamily: "'Syne', sans-serif",
+          }}
+          title={`Player Play Order: Turn ${turnNumber}`}
+        >
+          {turnNumber}
+        </div>
+      )}
+
       <PlayerAvatar player={opp} index={index} size={avatarSize} />
 
       <span

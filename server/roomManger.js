@@ -21,7 +21,6 @@ async function generateRoomCode() {
   );
 
   if (existingRoom.rows.length === 0) {
-    console.log(output); //debugs
     return output;
   } else {
     return generateRoomCode();
@@ -108,7 +107,6 @@ async function createRoom(hostId, options = {}) {
     [displayName, avatarEmoji, room.room_id, hostId],
   );
 
-  console.log(room); //debugs
   return room;
 }
 // join room
@@ -228,7 +226,6 @@ async function joinRoom(roomCode, userId = null, guestName = null) {
       `,
     [room.room_id],
   );
-  console.log("players data from room manager join room ", playersResult.rows);
   return {
     room,
     players: playersResult.rows,
@@ -286,11 +283,13 @@ async function leaveRoom(roomCode, userId = null, reconnectToken = null) {
       `UPDATE rooms SET status = 'finished', last_activity = now() WHERE room_id = $1`,
       [room.room_id],
     );
-    return await get(roomCode);
+    console.log(`[ROOM_CLEAR] All active players left. Room ${roomCode} status set to finished.`);
+    return await getRoomState(roomCode);
   }
 
   // ── host transfer ─────────────────────────────────────────────────────────
-  const isHost = room.host_id && player.user_id === room.host_id;
+  const isHost = (room.host_id && player.user_id === room.host_id) ||
+                 (room.host_reconnect_token && player.reconnect_token === room.host_reconnect_token);
 
   if (isHost) {
     if (room.status === "waiting") {
@@ -304,10 +303,10 @@ async function leaveRoom(roomCode, userId = null, reconnectToken = null) {
         return null; // caller should handle null as "room gone"
       }
 
-      await db.query(`UPDATE rooms SET host_id = $1 WHERE room_id = $2`, [
-        nextRegistered.user_id,
-        room.room_id,
-      ]);
+      await db.query(
+        `UPDATE rooms SET host_id = $1, host_reconnect_token = NULL WHERE room_id = $2`,
+        [nextRegistered.user_id, room.room_id],
+      );
     } else {
       // mid-game — transfer to any active player (guest is fine)
       // prefer registered users but fall back to guests
@@ -315,13 +314,16 @@ async function leaveRoom(roomCode, userId = null, reconnectToken = null) {
         activePlayers.find((p) => p.user_id != null) || activePlayers[0];
 
       if (nextHost.user_id) {
-        await db.query(`UPDATE rooms SET host_id = $1 WHERE room_id = $2`, [
-          nextHost.user_id,
-          room.room_id,
-        ]);
+        await db.query(
+          `UPDATE rooms SET host_id = $1, host_reconnect_token = NULL WHERE room_id = $2`,
+          [nextHost.user_id, room.room_id],
+        );
+      } else {
+        await db.query(
+          `UPDATE rooms SET host_id = NULL, host_reconnect_token = $1 WHERE room_id = $2`,
+          [nextHost.reconnect_token, room.room_id],
+        );
       }
-      // if new host is a guest, host_id stays as the old user_id
-      // which is fine — mid-game host only controls play_again
     }
   }
 
@@ -348,8 +350,9 @@ async function leaveRoom(roomCode, userId = null, reconnectToken = null) {
         // impossible but guard anyway
         gameState.gameOver = true;
       } else {
-        // if we removed someone before or at current index, shift back
-        if (leavingIndex <= gameState.currentPlayerIndex) {
+        // if we removed someone before the current index, shift back to keep turn consistent.
+        // if we removed someone AT the current index, do NOT shift back, as the next player shifts down to this index.
+        if (leavingIndex < gameState.currentPlayerIndex) {
           gameState.currentPlayerIndex = Math.max(
             0,
             gameState.currentPlayerIndex - 1,
@@ -560,7 +563,6 @@ async function reconnectPlayer(
       [room.room_id, reconnectToken],
     );
   }
-  console.log("player results from room manager", playerResult.rows); //debugs
 
   if (playerResult.rows.length === 0) {
     throw new Error("Player not found or not disconnected");
@@ -613,7 +615,10 @@ async function playAgain(roomCode, hostId) {
   }
   const room = roomResult.rows[0];
 
-  if (room.host_id !== hostId) {
+  const isCurrentHost = (room.host_id && room.host_id === hostId) ||
+                        (room.host_reconnect_token && room.host_reconnect_token === hostId);
+
+  if (!isCurrentHost) {
     throw new Error("Only host can restart game");
   }
 

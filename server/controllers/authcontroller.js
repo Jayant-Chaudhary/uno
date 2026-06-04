@@ -7,6 +7,14 @@ const generateAccessToken = require("../utils/generateAcessToken");
 const generateRefreshToken = require("../utils/generateRefreshToken");
 const createSession = require("../utils/createSession");
 
+const isProd = process.env.CLIENT_API?.startsWith("https://");
+const cookieConfig = (maxAge) => ({
+  httpOnly: true,
+  secure: isProd ? true : false,
+  sameSite: isProd ? "none" : "lax",
+  maxAge,
+});
+
 exports.signup = async (req, res) => {
   try {
     const { username, email, password } = req.body;
@@ -47,7 +55,7 @@ exports.signup = async (req, res) => {
           user_id,
           username,
           email,
-          avatar_emoji
+          avatar_emoji,
           created_at
       `,
       [username, email, hashedPassword],
@@ -61,19 +69,8 @@ exports.signup = async (req, res) => {
 
     await createSession(user.user_id, refreshToken, req);
 
-    res.cookie("access_token", accessToken, {
-      httpOnly: true,
-      secure: false,
-      sameSite: "lax",
-      maxAge: 15 * 60 * 1000,
-    });
-
-    res.cookie("refresh_token", refreshToken, {
-      httpOnly: true,
-      secure: false,
-      sameSite: "lax",
-      maxAge: 7 * 24 * 60 * 60 * 1000,
-    });
+    res.cookie("access_token", accessToken, cookieConfig(15 * 60 * 1000));
+    res.cookie("refresh_token", refreshToken, cookieConfig(7 * 24 * 60 * 60 * 1000));
 
     res.status(201).json({
       message: "Signup successful",
@@ -144,19 +141,8 @@ exports.login = async (req, res) => {
 
     await createSession(user.user_id, refreshToken, req);
 
-    res.cookie("access_token", accessToken, {
-      httpOnly: true,
-      secure: false,
-      sameSite: "lax",
-      maxAge: 15 * 60 * 1000,
-    });
-
-    res.cookie("refresh_token", refreshToken, {
-      httpOnly: true,
-      secure: false,
-      sameSite: "lax",
-      maxAge: 7 * 24 * 60 * 60 * 1000,
-    });
+    res.cookie("access_token", accessToken, cookieConfig(15 * 60 * 1000));
+    res.cookie("refresh_token", refreshToken, cookieConfig(7 * 24 * 60 * 60 * 1000));
 
     res.json({
       message: "Login successful",
@@ -184,17 +170,15 @@ exports.googleSuccess = async (req, res) => {
   try {
     const user = req.user;
 
-    const token = generateJwt(user);
+    const accessToken = generateAccessToken(user);
+    const refreshToken = generateRefreshToken(user);
 
-    await createSession(user.user_id, token, req);
+    await createSession(user.user_id, refreshToken, req);
 
-    res.cookie("token", token, {
-      httpOnly: true,
-      secure: false,
-      sameSite: "lax",
-      maxAge: 7 * 24 * 60 * 60 * 1000,
-    });
-    res.redirect("http://localhost:5000"); //frontend url
+    res.cookie("access_token", accessToken, cookieConfig(15 * 60 * 1000));
+    res.cookie("refresh_token", refreshToken, cookieConfig(7 * 24 * 60 * 60 * 1000));
+
+    res.redirect(process.env.CLIENT_API || "http://localhost:5173");
   } catch (err) {
     console.error(err);
 
@@ -306,10 +290,7 @@ exports.forgotPassword = async (req, res) => {
     // TODO:
     // send reset email here
 
-    console.log(
-      `Reset Link:
-http://localhost:3000/reset-password/${resetToken}`,
-    );
+    console.log(`[RESET_LINK] Password reset requested. Reset token: ${resetToken}`);
 
     res.json({
       message: "Reset link sent",
@@ -347,6 +328,7 @@ exports.resetPassword = async (req, res) => {
     );
 
     if (result.rows.length === 0) {
+      console.log(`[TOKEN_EXPIRY] Password reset token is invalid or has expired.`);
       return res.status(400).json({
         error: "Invalid or expired token",
       });
@@ -381,8 +363,13 @@ exports.resetPassword = async (req, res) => {
 };
 
 exports.refresh = async (req, res) => {
-  console.log("refresh request");
   try {
+    // Automatically purge all expired sessions from the database
+    const purgeResult = await db.query(`DELETE FROM sessions WHERE expires_at <= now()`);
+    if (purgeResult.rowCount > 0) {
+      console.log(`[SESSION_CLEANUP] Automatically purged ${purgeResult.rowCount} expired session(s) from database.`);
+    }
+
     const refreshToken = req.cookies.refresh_token;
 
     if (!refreshToken) {
@@ -406,6 +393,7 @@ exports.refresh = async (req, res) => {
     );
 
     if (session.rows.length === 0) {
+      console.log(`[SESSION_EXPIRY] Session has expired or is invalid in database.`);
       return res.status(401).json({
         error: "Invalid session",
       });
@@ -435,19 +423,8 @@ exports.refresh = async (req, res) => {
       [newRefreshToken, refreshToken],
     );
 
-    res.cookie("access_token", newAccessToken, {
-      httpOnly: true,
-      secure: false,
-      sameSite: "lax",
-      maxAge: 15 * 60 * 1000,
-    });
-
-    res.cookie("refresh_token", newRefreshToken, {
-      httpOnly: true,
-      secure: false,
-      sameSite: "lax",
-      maxAge: 7 * 24 * 60 * 60 * 1000,
-    });
+    res.cookie("access_token", newAccessToken, cookieConfig(15 * 60 * 1000));
+    res.cookie("refresh_token", newRefreshToken, cookieConfig(7 * 24 * 60 * 60 * 1000));
 
     res.json({
       message: "Token refreshed",
@@ -462,17 +439,30 @@ exports.refresh = async (req, res) => {
 };
 
 exports.updateAvatar = async (req, res) => {
-  const { avatarEmoji } = req.body;
+  const { avatarEmoji, username } = req.body;
+  const userId = req.user.user_id;
 
-  if (!avatarEmoji || typeof avatarEmoji !== "string") {
-    return res.status(400).json({ error: "Invalid emoji" });
+  try {
+    if (avatarEmoji && typeof avatarEmoji === "string") {
+      const clean = avatarEmoji.trim().slice(0, 10);
+      await db.query(`UPDATE users SET avatar_emoji = $1 WHERE user_id = $2`, [
+        clean,
+        userId,
+      ]);
+    }
+
+    if (username && typeof username === "string") {
+      const cleanName = username.trim().slice(0, 32);
+      if (cleanName.length >= 2) {
+        await db.query(`UPDATE users SET username = $1 WHERE user_id = $2`, [
+          cleanName,
+          userId,
+        ]);
+      }
+    }
+
+    res.json({ success: true });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
   }
-  // strip anything longer than 10 chars (malicious input)
-  const clean = avatarEmoji.trim().slice(0, 10);
-
-  await db.query(`UPDATE users SET avatar_emoji = $1 WHERE user_id = $2`, [
-    clean,
-    req.user.user_id,
-  ]);
-  res.json({ success: true, avatarEmoji: clean });
 };
