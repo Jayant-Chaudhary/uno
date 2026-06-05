@@ -4,7 +4,7 @@ An premium, state-of-the-art UNO multiplayer web application. Built with **React
 
 ---
 
-## 🌟 Key Features
+##  Key Features
 
 ### 1. Modern Premium Aesthetics & Responsiveness
 * **Glassmorphic UI**: Renders sleek cards, menus, and pages with responsive glass panels (`bg-[#333]/20`), micro-animations, high backdrop blur (`backdrop-blur-2xl`), and neon drop shadows.
@@ -48,7 +48,7 @@ An premium, state-of-the-art UNO multiplayer web application. Built with **React
 
 ---
 
-## 🛠️ Technology Stack
+##  Technology Stack
 
 * **Frontend**: React (Vite, TailwindCSS, custom glassmorphism stylesheets, React-Router-DOM)
 * **Backend**: Node.js, Express, Socket.io
@@ -57,7 +57,7 @@ An premium, state-of-the-art UNO multiplayer web application. Built with **React
 
 ---
 
-## 🚀 Setup & Execution
+## Setup & Execution
 
 ### 1. Prerequisites
 Ensure you have the following installed:
@@ -111,5 +111,5 @@ cd ..
 
 ---
 
-## 📄 License
+##  License
 This project is licensed under the ISC License.
