@@ -220,6 +220,16 @@ function nextTurn(state) {
     nextindex = (nextindex + state.direction + playercount) % playercount;
     state.skip = false;
   }
+
+  // Skip disconnected players if there are more than 2 players in the game
+  if (playercount > 2) {
+    let loops = 0;
+    while (state.players[nextindex].socketId === null && loops < playercount) {
+      nextindex = (nextindex + state.direction + playercount) % playercount;
+      loops++;
+    }
+  }
+
   state.currentPlayerIndex = nextindex;
   return state;
 }
@@ -384,4 +394,5 @@ module.exports = {
   drawCards,
   callOut,
   isValidPlay,
+  nextTurn,
 };

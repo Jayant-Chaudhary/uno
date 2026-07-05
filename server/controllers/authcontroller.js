@@ -7,7 +7,7 @@ const generateAccessToken = require("../utils/generateAcessToken");
 const generateRefreshToken = require("../utils/generateRefreshToken");
 const createSession = require("../utils/createSession");
 
-const isProd = process.env.CLIENT_API?.startsWith("https://");
+const isProd = process.env.CLIENT_API?.trim().startsWith("https://");
 const cookieConfig = (maxAge) => ({
   httpOnly: true,
   secure: isProd ? true : false,
@@ -178,7 +178,7 @@ exports.googleSuccess = async (req, res) => {
     res.cookie("access_token", accessToken, cookieConfig(15 * 60 * 1000));
     res.cookie("refresh_token", refreshToken, cookieConfig(7 * 24 * 60 * 60 * 1000));
 
-    res.redirect(process.env.CLIENT_API || "http://localhost:5173");
+    res.redirect(process.env.CLIENT_API?.trim() || "http://localhost:5173");
   } catch (err) {
     console.error(err);
 
@@ -191,19 +191,20 @@ exports.googleSuccess = async (req, res) => {
 
 exports.logout = async (req, res) => {
   try {
-    const token = req.cookies.token;
+    const refreshToken = req.cookies.refresh_token;
 
-    if (token) {
+    if (refreshToken) {
       await db.query(
         `
           DELETE FROM sessions
           WHERE token = $1
         `,
-        [token],
+        [refreshToken],
       );
     }
 
-    res.clearCookie("token");
+    res.clearCookie("access_token", cookieConfig(0));
+    res.clearCookie("refresh_token", cookieConfig(0));
 
     res.json({
       message: "Logout successful",

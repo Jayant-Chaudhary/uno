@@ -466,7 +466,8 @@ async function disconnectPlayer(roomCode, socketId) {
 
   const updatedPlayer = updatedPlayerResult.rows[0];
 
-  const isHost = player.user_id && player.user_id === room.host_id;
+  const isHost = (room.host_id && player.user_id === room.host_id) ||
+                 (room.host_reconnect_token && player.reconnect_token === room.host_reconnect_token);
 
   if (isHost && room.status === "waiting") {
     await deleteRoom(room.room_id);
@@ -476,18 +477,34 @@ async function disconnectPlayer(roomCode, socketId) {
 
   const activePlayersResult = await db.query(
     `
-        SELECT COUNT(*)::INT AS count
+        SELECT *
         FROM room_players
         WHERE room_id = $1
           AND status = 'active'
       `,
     [room.room_id],
   );
-  if (playerResult.rows.length === 0) return false;
 
-  const activePlayers = activePlayersResult.rows[0].count;
+  const activePlayers = activePlayersResult.rows;
+  const activeCount = activePlayers.length;
 
-  if (activePlayers === 0) {
+  if (isHost && room.status !== "waiting" && activeCount > 0) {
+    const nextHost = activePlayers.find((p) => p.user_id != null) || activePlayers[0];
+
+    if (nextHost.user_id) {
+      await db.query(
+        `UPDATE rooms SET host_id = $1, host_reconnect_token = NULL WHERE room_id = $2`,
+        [nextHost.user_id, room.room_id],
+      );
+    } else {
+      await db.query(
+        `UPDATE rooms SET host_id = NULL, host_reconnect_token = $1 WHERE room_id = $2`,
+        [nextHost.reconnect_token, room.room_id],
+      );
+    }
+  }
+
+  if (activeCount === 0) {
     await db.query(
       `
         UPDATE rooms

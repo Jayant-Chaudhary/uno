@@ -9,6 +9,7 @@ const {
   drawCards,
   callOut,
   isValidPlay,
+  nextTurn,
 } = require("../gameEngine");
 const {
   startTurnTimer,
@@ -279,10 +280,7 @@ function registerGameEvents(io) {
         const canPlay = isValidPlay(drawnCard, gameState);
 
         if (!canPlay) {
-          const playercount = gameState.players.length;
-          gameState.currentPlayerIndex =
-            (gameState.currentPlayerIndex + gameState.direction + playercount) %
-            playercount;
+          gameState = nextTurn(gameState);
         }
         if (gameState.disconnectedSkips)
           delete gameState.disconnectedSkips[playerId];
@@ -339,6 +337,7 @@ function registerGameEvents(io) {
         }
         await client.query("COMMIT");
         io.to(roomCode).emit("uno_called", { playerId });
+        broadcastGameUpdate(io, roomCode, gameState);
       } catch (err) {
         try {
           await client.query("ROLLBACK");
@@ -454,18 +453,6 @@ function registerGameEvents(io) {
                   broadcastGameUpdate,
                   startedAt,
                 );
-              } else if (activePlayersCount == 2) {
-                // it was the other player's turn — restart fresh for them
-                const startedAt = stampTurnTimer(gameState);
-                await saveGameState(result.room.room_id, gameState);
-                startTurnTimer(
-                  io,
-                  roomCode,
-                  db,
-                  saveGameState,
-                  broadcastGameUpdate,
-                  startedAt,
-                );
               }
               broadcastGameUpdate(io, roomCode, gameState);
             } else {
@@ -531,10 +518,7 @@ function registerGameEvents(io) {
           return socket.emit("error", { message: "You must draw a card because you have no playable cards." });
         }
 
-        const playercount = gameState.players.length;
-        gameState.currentPlayerIndex =
-          (gameState.currentPlayerIndex + gameState.direction + playercount) %
-          playercount;
+        gameState = nextTurn(gameState);
 
         if (gameState.disconnectedSkips)
           delete gameState.disconnectedSkips[playerId];
@@ -595,14 +579,17 @@ function registerGameEvents(io) {
             if (roomResult.rows.length === 0) return;
             const room = roomResult.rows[0];
 
+            const disconnectedId = updated.user_id || updated.reconnect_token;
+            const disconnectedName = updated.display_name || updated.username || updated.guest_name;
+
             io.to(roomCode).emit("player_disconnected", {
-              socketId: socket.id,
+              disconnectedId,
+              disconnectedName,
             });
 
             if (room.status !== "active" || !room.game_state) return;
 
             const gameState = room.game_state;
-            const disconnectedId = updated.user_id || updated.reconnect_token;
 
             //null out socketId in gameState
             const playerInState = gameState.players.find(
@@ -612,12 +599,16 @@ function registerGameEvents(io) {
               playerInState.socketId = null;
               await saveGameState(room.room_id, gameState);
             }
+
+            // Always broadcast the state change so everyone knows they are offline
+            broadcastGameUpdate(io, roomCode, gameState);
+
             // If it was their turn when they disconnected, ensure the turn timer continues running
             const currentPlayer =
               gameState.players[gameState.currentPlayerIndex];
             if (currentPlayer?.id === disconnectedId) {
               const startedAt = gameState.turnTimer?.startedAt ?? Date.now();
-              startTurnTimer(
+              resumeTurnTimer(
                 io,
                 roomCode,
                 db,

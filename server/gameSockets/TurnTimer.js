@@ -1,5 +1,5 @@
 const TURN_DURATION_MS = 30_000;
-const { drawCards } = require("../gameEngine");
+const { drawCards, nextTurn } = require("../gameEngine");
 
 const roomTimers = new Map();
 const roomGen = new Map();
@@ -127,11 +127,12 @@ async function _onTimerFired(io, roomCode, gen, expectedStartedAt, db, saveGameS
           return;
         }
 
-        // Adjust index: since we spliced, next player falls into leavingIndex
         if (leavingIndex < gameState.currentPlayerIndex) {
-          gameState.currentPlayerIndex = Math.max(0, gameState.currentPlayerIndex - 1);
+          gameState.currentPlayerIndex--;
+        } else if (leavingIndex === gameState.currentPlayerIndex && gameState.direction === -1) {
+          gameState.currentPlayerIndex--;
         }
-        gameState.currentPlayerIndex = gameState.currentPlayerIndex % gameState.players.length;
+        gameState.currentPlayerIndex = (gameState.currentPlayerIndex + gameState.players.length) % gameState.players.length;
       }
     }
 
@@ -179,9 +180,7 @@ async function _onTimerFired(io, roomCode, gen, expectedStartedAt, db, saveGameS
 }
 
 function _advanceOne(gameState) {
-  const count = gameState.players.length;
-  gameState.currentPlayerIndex =
-    (gameState.currentPlayerIndex + gameState.direction + count) % count;
+  nextTurn(gameState);
   delete gameState.pendingDraw;
 }
 

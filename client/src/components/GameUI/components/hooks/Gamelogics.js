@@ -231,9 +231,20 @@ export function useGameLogic(roomCode) {
     [handCards, isValidPlay],
   );
 
-  const handleOpponentDisconnected = useCallback(
-    ({ disconnectedId, disconnectedName }) => {
-      setOpponentAway({ disconnectedId, disconnectedName });
+  const handlePlayerDisconnected = useCallback(
+    (data) => {
+      console.log("Received player_disconnected:", data);
+      setGameState((prev) => {
+        if (prev?.players?.length === 2) {
+          setTimeout(() => {
+            setOpponentAway({
+              disconnectedId: data.disconnectedId,
+              disconnectedName: data.disconnectedName,
+            });
+          }, 0);
+        }
+        return prev;
+      });
     },
     [],
   );
@@ -259,13 +270,6 @@ export function useGameLogic(roomCode) {
   const handleGameUpdate = useCallback(({ gameState: gs }) => {
     console.log(gs);
     setGameState((prev) => {
-      // Same turn, same timestamp → nothing meaningful changed, skip re-render
-      if (
-        prev?.turnTimer?.startedAt === gs?.turnTimer?.startedAt &&
-        prev?.currentPlayerIndex === gs?.currentPlayerIndex
-      ) {
-        return prev;
-      }
       return gs;
     });
     setGameStateVerified(true);
@@ -318,7 +322,7 @@ export function useGameLogic(roomCode) {
     onBackToLobby: handleBackToLobby,
     onError: handleError,
     onReconnected: handleReconnected,
-    onOpponentDisconnected: handleOpponentDisconnected,
+    onPlayerDisconnected: handlePlayerDisconnected,
     onOpponentReconnected: handleOpponentReconnected,
     onUnoCalled: handleUnoCalled,
   });
@@ -523,20 +527,31 @@ export function useGameLogic(roomCode) {
   let unoActionHandler = () => {};
   let unoActionDisabled = true;
 
-  if (myHandSize === 1) {
+  const iHavePendingUno = myHandSize === 1 && gameState.pendingUno?.playerId === myId;
+  const opponentWithPendingUno = opponents.find(o => o.cardCount === 1 && gameState.pendingUno?.playerId === o.id);
+
+  if (iHavePendingUno) {
     unoActionLabel = "UNO!";
-    unoActionDisabled = gameState.pendingUno?.playerId !== myId;
-    unoActionBg = (unoActionDisabled || unoClicked)
+    unoActionDisabled = unoClicked;
+    unoActionBg = unoClicked
       ? "bg-white/5 text-white/20 border-white/10 cursor-not-allowed"
       : "bg-red-500/20 text-red-400 border-red-500 hover:bg-red-500/30 shadow-[0_0_15px_rgba(239,68,68,0.3)] hover:scale-105 active:scale-95";
     unoActionHandler = handleSayUnoWrapped;
-  } else if (opponentToCallOut) {
+  } else if (opponentWithPendingUno) {
     unoActionLabel = "Call Out!";
-    unoActionDisabled = gameState.pendingUno?.playerId !== opponentToCallOut.id;
-    unoActionBg = (unoActionDisabled || unoClicked)
+    unoActionDisabled = unoClicked;
+    unoActionBg = unoClicked
       ? "bg-white/5 text-white/20 border-white/10 cursor-not-allowed"
       : "bg-orange-500/20 text-orange-400 border-orange-500 hover:bg-orange-500/30 shadow-[0_0_15px_rgba(249,115,22,0.3)] hover:scale-105 active:scale-95";
-    unoActionHandler = () => handleCallOutWrapped(opponentToCallOut.id);
+    unoActionHandler = () => handleCallOutWrapped(opponentWithPendingUno.id);
+  } else if (myHandSize === 1) {
+    unoActionLabel = "UNO!";
+    unoActionDisabled = true;
+    unoActionBg = "bg-white/5 text-white/20 border-white/10 cursor-not-allowed";
+  } else if (opponentToCallOut) {
+    unoActionLabel = "Call Out!";
+    unoActionDisabled = true;
+    unoActionBg = "bg-white/5 text-white/20 border-white/10 cursor-not-allowed";
   }
 
   // ── Return everything the UI needs ─────────────────────────────────────────
