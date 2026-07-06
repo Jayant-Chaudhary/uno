@@ -5,17 +5,18 @@ const Rightsection = () => {
   const [clicked, setClicked] = useState("");
   const navigate = useNavigate();
 
-  async function handleClick(mode) {
-    await setClicked(mode);
-    if (clicked == "offline") {
-      await navigate("/roomCreator");
-    }else if(clicked=="online"){
-      await navigate("/joinRoom")
-    }
-
+  function handleClick(mode) {
+    setClicked(mode);
+    
+    // Wait a brief moment to show the click animation before navigating
     setTimeout(() => {
+      if (mode === "offline") {
+        navigate("/roomCreator");
+      } else if (mode === "online") {
+        navigate("/joinRoom");
+      }
       setClicked("");
-    }, 250);
+    }, 200);
   }
 
   return (
