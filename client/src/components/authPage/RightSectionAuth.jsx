@@ -179,6 +179,7 @@ const RightSectionAuth = () => {
             </div>
 
             {/* Forgot password — login only */}
+            {/*
             {tab === "login" && (
               <div className="text-right -mt-1">
                 <span className="text-xs text-purple-300/50 hover:text-purple-300/80 cursor-pointer transition-colors">
@@ -186,6 +187,7 @@ const RightSectionAuth = () => {
                 </span>
               </div>
             )}
+            */}
 
             {/* Submit */}
             <button
@@ -211,6 +213,7 @@ const RightSectionAuth = () => {
           </form>
 
           {/* OR divider */}
+          {/*
           <div className="flex items-center gap-3">
             <div className="flex-1 h-px bg-white/10" />
             <span className="text-xs text-white/25 tracking-widest uppercase">
@@ -218,8 +221,10 @@ const RightSectionAuth = () => {
             </span>
             <div className="flex-1 h-px bg-white/10" />
           </div>
+          */}
 
           {/* Google button */}
+          {/*
           <button
             type="button"
             onClick={onGoogleHandler}
@@ -235,6 +240,7 @@ const RightSectionAuth = () => {
             <GoogleIcon />
             {tab === "login" ? "Continue with Google" : "Sign up with Google"}
           </button>
+          */}
 
           {/* Switch tab hint */}
           <p className="text-center text-xs text-white/25">

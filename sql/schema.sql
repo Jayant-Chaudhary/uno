@@ -77,8 +77,7 @@ ALTER TABLE room_players ADD COLUMN reconnect_token TEXT;
 ALTER TABLE room_players ADD COLUMN disconnect_count INT DEFAULT 0;
 ALTER TABLE rooms ADD COLUMN rounds_played INT DEFAULT 0;
 
---adding the refresh token 
-ALTER TABLE sessions ADD COLUMN refresh_token TEXT NOT NULL;
+-- removed incorrect refresh_token column
 
 -- recent additions for guest hosting and emojis
 ALTER TABLE users ADD COLUMN avatar_emoji TEXT;
