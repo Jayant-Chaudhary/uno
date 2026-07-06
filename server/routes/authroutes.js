@@ -32,7 +32,9 @@ router.get(
 
   passport.authenticate("google", {
     session: false,
-    failureRedirect: process.env.CLIENT_API ? `${process.env.CLIENT_API.trim()}/auth` : "http://localhost:5173/auth",
+    failureRedirect: process.env.CLIENT_API
+      ? `${process.env.CLIENT_API.trim()}/auth`
+      : "http://localhost:5173/auth",
   }),
 
   authController.googleSuccess,

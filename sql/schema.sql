@@ -79,3 +79,10 @@ ALTER TABLE rooms ADD COLUMN rounds_played INT DEFAULT 0;
 
 --adding the refresh token 
 ALTER TABLE sessions ADD COLUMN refresh_token TEXT NOT NULL;
+
+-- recent additions for guest hosting and emojis
+ALTER TABLE users ADD COLUMN avatar_emoji TEXT;
+ALTER TABLE room_players ADD COLUMN avatar_emoji TEXT;
+ALTER TABLE room_players ADD COLUMN game_name VARCHAR(32);
+ALTER TABLE rooms ADD COLUMN host_reconnect_token TEXT;
+ALTER TABLE rooms ALTER COLUMN host_id DROP NOT NULL;
